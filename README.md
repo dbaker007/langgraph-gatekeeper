@@ -1,30 +1,30 @@
-# Logistics Engine
+# LangGraph Gatekeeper
 
-An enterprise-grade cargo routing and fleet dispatch orchestration microservice built on top of **LangGraph** and secured via the [LangGraph Gatekeeper](https://github.com/dbaker007/langgraph-gatekeeper) framework library. 
+An enterprise-grade, zero-trust security architecture and automated orchestration framework built natively for **LangGraph** workflows. 
 
-This service demonstrates a completely decoupled, domain-agnostic approach to agentic workflow security—enforcing zero-friction role-to-permission mapping and out-of-band SLA thread evictions at runtime.
+This library acts as an automated, domain-agnostic compilation firewall—enforcing fine-grained pre-execution access controls (`execute` vs. `approve` turns) and out-of-band administrative thread evictions (TTL/SLA monitors) without polluting business canvas nodes or forcing partners into restrictive workflow patterns.
 
 ---
 
-## 🏗️ Architecture Blueprint
+## 🏗️ Core Architectural Features
 
-The microservice exposes a secure HTTP API portal over a parallel `StateGraph` workflow canvas. It implements a strict separation of concerns across three system layers:
-
-1. **The Gateway Tier (`gateway.py`)**: A high-performance FastAPI web layer that intercepts incoming corporate traffic, simulates cryptographic token (JWT) validation, extracts the caller's high-level organizational roles, and maps them to execution threads.
-2. **The Security Boundary (`workflow.py`)**: Implements an advanced `LogisticsSecurityProvider` class that implements the universal `.authorize()` contract. This class maps broad organizational roles (e.g., `junior_dispatcher`, `fleet_director`) to fine-grained system capability claims entirely out-of-band.
-3. **The Staging Registry**: Leverages the parent framework's `execute_graph` and delayed-deletion `resume` orchestrators to cleanly intercept and cache volatile task tokens without exposing tuple or snapshot complexity to the application developer.
+* **Compilation-Time Firewall**: Injects a global pre-execution security closure across all workflow nodes at compile time (`compile_graph_with_authorization`). Access validation is deferred until the precise microsecond of a live runtime node turn.
+* **Abstract Policy Interface**: Decouples identity verification from business schemas via a universal `.authorize(user_claims, resource, action)` boundary contract, supporting standard dictionaries or custom enterprise policy providers out-of-band.
+* **ContextVar Enforcement**: Enforces security boundaries natively using LangGraph's global thread configuration `ContextVar` context containers (`get_config()`), guaranteeing bulletproof protection from step one—even for flat graphs with zero internal interrupts routing straight to `END`.
+* **Transaction-Safe Resumption Loop**: Implements a delayed-deletion orchestrator lifecycle primitive (`resume()`) that prevents token destruction during unauthorized resumption attempts, leaving the thread perfectly retryable for elevated manager contexts.
+* **Out-of-Band Administrative Monitor**: Features a standalone polling daemon tier (`monitor.py`) that scans independent SLA registries and forcefully triggers out-of-band thread evictions using pristine framework checkpoint state mutations.
 
 ---
 
 ## 🛠️ Local Development & Setup
 
-This repository uses **`uv`** for fast, deterministic dependency isolation and workspace synchronization.
+This library package uses **`uv`** for deterministic dependency management and development testing.
 
 ### 1. Prerequisites
-Ensure you have the Python 3.12 runtime and `uv` package manager installed on your machine.
+Ensure you have the Python 3.12 runtime and the `uv` package manager installed on your machine.
 
-### 2. Synchronize the Environment
-From the root of the `logistics-engine` repository, run the workspace setup command. This will build your local virtual environment and dynamically mount the parallel `langgraph-gatekeeper` package via an editable local symlink path dependency:
+### 2. Synchronize the Development Environment
+From the root of the framework repository, initialize the virtual environment and fetch core library dependencies:
 
 ```bash
 uv sync
@@ -32,23 +32,15 @@ uv sync
 
 ---
 
-## 🧪 Verification & Testing
+## 🧪 Verification & Testing Suite
 
-A localized `Makefile` is provided to keep development workflows uniform and clean. 
-
-Execute the master target runner to wipe old database artifacts, clear bytecaches, and run both the business workflow state tests and the FastAPI client endpoint integration suite:
+A standardized `Makefile` is provided to keep workspace hygiene clean. Execute the verification script to purge scratch tables, clear bytecode cache paths, and run the modular testing components:
 
 ```bash
 make clean test
 ```
 
-### What the Suites Verify Natively:
-* **Turn 1 (Dispatch Entrance)**: Validates that an authenticated caller context carrying a standard `junior_dispatcher` role successfully passes the front-door compilation firewall on step one, freezing gracefully at an inline `interrupt()` hurdle.
-* **Turn 2 (Security Interception Failure)**: Confirms that if that same unauthorized dispatcher attempts a high-privilege route approval pass, the runtime firewall catches the breach, blocks execution, and preserves the active token cache row.
-* **Turn 3 (Elevated Resumption Clearance)**: Verifies that when an elevated `fleet_director` context retries the transaction, the token resolves natively, the firewall clears the gate, and the workflow finishes cleanly.
-
----
-
-## 🚀 Future Roadmap: LLM & Tool Integrations
-* **Ollama Local LLM Connectivity**: Standardizing on the OpenAI-compatible API standard to execute Llama 3 / Mistral model reasoning pipelines locally on a private hardware sandbox.
-* **Fine-Grained Tool Firewalls**: Wrapping LangGraph `Action Nodes` with compile-time security fences to validate individual tool-call permission headers out-of-band before tools compute data.
+### What the Suites Validate Natively:
+1. **Security Interception (`tests/test_security.py`)**: Proves that unauthorized identities attempting to stream an initial node pass or resume a frozen thread are intercepted at the gate and aborted immediately with a `PermissionError`. Missing user claims fall back securely to anonymous context restrictions (`[]`).
+2. **Orchestration Lifecycles (`tests/test_framework.py`)**: Confirms that valid transactions stream unhindered, that the custom `interrupt()` wrapper harvests business keys cleanly out-of-band, and that failed resumption retries preserve token lines on disk.
+3. **Background Evictions (`tests/test_ttl.py`)**: Verifies that the automated polling cycle daemon parses relational checkpoint ancestry records to forcefully eject breached threads using M2M security permission clearing blocks.
