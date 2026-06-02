@@ -1,13 +1,26 @@
 import importlib
+import os
 import sys
 import time
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
-from ttl_monitor.services import mark_thread_complete
-from ttl_monitor.sla_db import (
+from langgraph_gatekeeper.ttl_monitor.services import mark_thread_complete
+from langgraph_gatekeeper.ttl_monitor.sla_db import (
     get_expired_sla_rows,
     get_graph_module_path,
 )
+
+_DAEMON_IDENTITY_CONTEXT: Dict[str, Any] = {
+    "user_id": "anonymous_daemon_worker",
+    "user_claims": [],
+}
+
+
+def set_framework_daemon_identity(identity_context: Dict[str, Any]) -> None:
+    global _DAEMON_IDENTITY_CONTEXT
+    if not isinstance(identity_context, dict):
+        raise TypeError("The identity_context must be a valid dictionary payload.")
+    _DAEMON_IDENTITY_CONTEXT = identity_context
 
 
 def resolve_graph_by_key(graph_key: str) -> Optional[Any]:
@@ -40,24 +53,35 @@ def run_ttl_monitor_cycle() -> int:
             continue
 
         try:
-            # Forcefully landing onto the empty Node 1 checkpointer anchor row
+            # Your exact original config layout, carrying the registered service capabilities
+            daemon_config = {
+                "configurable": {
+                    "thread_id": thread_id,
+                    "user_id": _DAEMON_IDENTITY_CONTEXT.get(
+                        "user_id", "anonymous_daemon_worker"
+                    ),
+                    "user_claims": _DAEMON_IDENTITY_CONTEXT.get("user_claims", []),
+                }
+            }
+
+            # Your exact original update_state pass
             graph_instance.update_state(
-                config={"configurable": {"thread_id": thread_id}},
+                config=daemon_config,
                 values={"kill_switch_reason": "SLA_TIMEOUT_EXPIRED"},
                 as_node="kill_switch",
             )
 
-            # The engine turns and naturally steps down the canvas edge into Node 2!
-            list(
-                graph_instance.stream(
-                    None, config={"configurable": {"thread_id": thread_id}}
-                )
-            )
+            # Your exact original streaming loop driver. Passes None to drive the checkpoint naturally.
+            list(graph_instance.stream(None, config=daemon_config))
 
             mark_thread_complete(thread_id)
             eviction_count += 1
 
-        except Exception:
+        except Exception as e:
+            import traceback
+
+            print(f"\n[WAM DAEMON CRASH DETECTED]: {e}")
+            traceback.print_exc()
             continue
 
     return eviction_count

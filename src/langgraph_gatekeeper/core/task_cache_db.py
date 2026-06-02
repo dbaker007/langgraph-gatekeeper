@@ -43,6 +43,14 @@ def get_active_task_token(routing_key: str) -> Optional[str]:
 
 def delete_active_task_token(routing_key: str) -> None:
     """Purges the single-use routing token from the cache once its resumption turn finishes."""
+    import traceback
+
+    print(
+        f"\n[WAM DB TRACKER] delete_active_task_token CALLED FOR KEY: '{routing_key}'"
+    )
+    print(" === RAW DELETION TRACKING STACK TRACE ===")
+    traceback.print_stack()
+    print(" =========================================\n")
     with sqlite3.connect(TASK_CACHE_DB_PATH, timeout=30.0) as conn:
         conn.execute("DELETE FROM active_tasks WHERE routing_key = ?", (routing_key,))
         conn.commit()

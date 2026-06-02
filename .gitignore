@@ -1,0 +1,19 @@
+# Environments & Packages
+.env
+.venv/
+__pycache__/
+*.pyc
+
+# Project Specific
+targets/
+temp/
+logs/
+*.db
+
+# Tooling
+.python-version
+uv.lock
+.gitingestignore
+bootstrap.sh
+snapshots/
+separation_of_concerns.md
