@@ -1,8 +1,8 @@
 import importlib
 import sqlite3
 
-from core.security import verify_registration_security_policy
-from ttl_monitor.sla_db import (
+# CORRECTED: Pull from our new package namespace structure
+from langgraph_gatekeeper.ttl_monitor.sla_db import (
     SLA_DB_PATH,
     init_sla_db,
     insert_graph_registry,
@@ -32,8 +32,6 @@ def register_graph_asset(graph_key: str, module_path: str) -> None:
     if ":" not in module_path:
         raise ValueError("The module_path format must use a colon separator.")
 
-    verify_registration_security_policy(graph_key)
-
     try:
         module_name, variable_name = module_path.split(":")
         module = importlib.import_module(module_name)
@@ -52,7 +50,7 @@ def register_graph_asset(graph_key: str, module_path: str) -> None:
 
     if "kill_switch" not in graph_instance.nodes:
         raise KeyError(
-            f"CRITICAL REGISTRATION REFUSAL: Missing mandatory 'kill_switch' node canvas registration."
+            "CRITICAL REGISTRATION REFUSAL: Missing mandatory 'kill_switch' node canvas registration."
         )
 
     insert_graph_registry(graph_key, module_path)

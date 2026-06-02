@@ -4,7 +4,8 @@ from langgraph.types import Command
 from langgraph.types import interrupt as langgraph_interrupt
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.task_cache_db import (
+# CORRECTED: Pull from our local package storage module flatly
+from langgraph_gatekeeper.core.task_cache_db import (
     delete_active_task_token,
     get_active_task_token,
     init_task_cache_db,
@@ -21,11 +22,13 @@ class InterruptPayload(BaseModel):
 
 
 def _intercept_active_tokens(events: List[Dict[str, Any]]) -> None:
-    """Scans stream event updates to record volatile framework task tokens."""
+    """Scans materialized stream event updates to record volatile framework task tokens."""
     init_task_cache_db()
+
     for event in events:
         if "__interrupt__" in event:
             active_interrupts = event["__interrupt__"]
+
             for item in active_interrupts:
                 target_key = None
                 payload = item.value
@@ -53,8 +56,13 @@ def _intercept_active_tokens(events: List[Dict[str, Any]]) -> None:
                     save_active_task_token(target_key, item.id)
 
 
-def interrupt(payload: InterruptPayload) -> Any:
-    return langgraph_interrupt(payload)
+def interrupt(*args: Any, **kwargs: Any) -> Any:
+    """Universal LangGraph Interrupt Wrapper.
+
+    Accepts any arbitrary positional or keyword arguments to match LangGraph's
+    native signature flexibility out-of-the-box.
+    """
+    return langgraph_interrupt(*args, **kwargs)
 
 
 def execute_graph(
@@ -71,6 +79,7 @@ def resume(
 ) -> Generator[Dict[str, Any], None, None]:
     """Automates token matching to seamlessly wake up a frozen parallel canvas branch."""
     token_id = get_active_task_token(routing_key)
+
     if not token_id:
         raise ValueError(
             f"No active interrupt token found matching routing key '{routing_key}'."
