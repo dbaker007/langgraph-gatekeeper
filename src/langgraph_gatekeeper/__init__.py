@@ -1,4 +1,9 @@
-from langgraph_gatekeeper.core.orchestrator import execute_graph, interrupt, resume
+from langgraph_gatekeeper.core.orchestrator import (
+    execute_graph,
+    get_historical_thread_status,
+    interrupt,
+    resume,
+)
 from langgraph_gatekeeper.core.security import compile_graph_with_authorization
 from langgraph_gatekeeper.ttl_monitor.monitor import (
     run_ttl_monitor_cycle,
@@ -10,6 +15,7 @@ __all__ = [
     "execute_graph",
     "resume",
     "interrupt",
+    "get_historical_thread_status",
     "set_framework_daemon_identity",
     "run_ttl_monitor_cycle",
 ]

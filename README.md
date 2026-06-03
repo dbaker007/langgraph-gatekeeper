@@ -13,6 +13,7 @@ This library acts as an automated, domain-agnostic compilation firewall—enforc
 * **ContextVar Enforcement**: Enforces security boundaries natively using LangGraph's global thread configuration `ContextVar` context containers (`get_config()`), guaranteeing bulletproof protection from step one—even for flat graphs with zero internal interrupts routing straight to `END`.
 * **Transaction-Safe Resumption Loop**: Implements a delayed-deletion orchestrator lifecycle primitive (`resume()`) that prevents token destruction during unauthorized resumption attempts, leaving the thread perfectly retryable for elevated manager contexts.
 * **Out-of-Band Administrative Monitor**: Features a standalone polling daemon tier (`monitor.py`) that scans independent SLA registries and forcefully triggers out-of-band thread evictions using pristine framework checkpoint state mutations.
+* **Immutable Translation Ledger**: Retains a permanent, append-only mapping row connecting the application's business `routing_key` straight to LangGraph's foundational `thread_id` container (`get_historical_thread_status`). By transitioning from a hard-delete cleanup model to a soft `CONSUMED` state flag model, the framework guarantees that an out-of-band application tool can always recover the historical thread ancestry logs long after a graph has completed execution and navigated to `END`.
 
 ---
 
