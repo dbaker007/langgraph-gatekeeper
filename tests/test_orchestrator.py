@@ -128,3 +128,42 @@ def test_resume_by_context_raises_value_error_if_composite_key_fails_to_match(
     assert "No active interrupt token located for composite primary key pair" in str(
         exc_info.value
     )
+
+
+def test_resumption_tuple_string_regression_protection(compiled_test_graph):
+    """REGRESSION SUITE: Verifies that raw string extraction from row data objects is clean.
+
+    Proves that special characters, quotes, or trailing commas inside the manager's
+    text input signature string do not trigger tuple string casting crashes.
+    """
+    thread_id = "thread_tuple_protection_777"
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": "director_baker",
+            "user_claims": ["cargo:read", "cargo:write"],
+        }
+    }
+
+    # Fire Turn 1 to seed the active interrupt record row into the tasks ledger table
+    list(execute_graph(compiled_test_graph, {}, config))
+
+    # Use a signature payload that includes complex nested string layouts
+    complex_input_signature = (
+        "Approved, signed, and certified (Compliance Vector: 'Alpha-7', Node: #4)."
+    )
+
+    # Wake the execution pipeline up using our single-responsibility context function
+    list(
+        resume_by_context(
+            graph=compiled_test_graph,
+            business_context="hazmat_dispatch_compliance",
+            user_input=complex_input_signature,
+            config=config,
+        )
+    )
+
+    # Confirm the graph ran cleanly to END and extracted a pure Python string value
+    final_snapshot = compiled_test_graph.get_state(config)
+    assert not final_snapshot.next
+    assert final_snapshot.values.get("manager_notes") == complex_input_signature

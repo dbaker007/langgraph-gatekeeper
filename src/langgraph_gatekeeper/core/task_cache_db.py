@@ -75,7 +75,7 @@ def get_token_by_business_context(
         )
         row = cursor.fetchone()
         if row:
-            # FIXED: Unpack individual tuple string array values from the database record row!
+            # FIXED: Explicitly target index 0 and index 1 of the SQL database result tuple row!
             return {"token_id": str(row[0]), "routing_key": str(row[1])}
         return None
 
