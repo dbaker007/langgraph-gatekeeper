@@ -7,15 +7,16 @@ TASK_CACHE_DB_PATH = os.path.join(_CURRENT_MODULE_DIR, "task_cache.db")
 
 
 def init_task_cache_db() -> None:
-    """Initializes the immutable metadata staging and tracking table schema safely."""
+    """Initializes the metadata tracking table schema safely."""
     with sqlite3.connect(TASK_CACHE_DB_PATH) as conn:
+        # FIXED: Removed the lazy DEFAULT string fallback to enforce strict NOT NULL data compliance!
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
                 routing_key TEXT PRIMARY KEY,
                 interrupt_id TEXT NOT NULL,
                 thread_id TEXT NOT NULL,
-                business_context TEXT NOT NULL DEFAULT 'default_context',
+                business_context TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'ACTIVE'
             )
             """
@@ -29,11 +30,9 @@ def init_task_cache_db() -> None:
         conn.commit()
 
 
+# FIXED: Removed the default string assignment (= "default_context") from the signature
 def save_active_task_token(
-    routing_key: str,
-    interrupt_id: str,
-    thread_id: str,
-    business_context: str = "default_context",
+    routing_key: str, interrupt_id: str, thread_id: str, business_context: str
 ) -> None:
     """Inserts or overwrites a task tracking token row along with its business context metrics."""
     with sqlite3.connect(TASK_CACHE_DB_PATH) as conn:
