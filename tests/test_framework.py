@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import uuid
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel
 from langgraph_gatekeeper import (
     compile_graph_with_authorization,
     execute_graph,
+    get_historical_thread_status,
     interrupt,
     resume,
 )
@@ -26,8 +28,12 @@ def entry_node(state: TestState) -> dict:
 
 
 def interrupt_node(state: TestState) -> dict:
-    # FIXED: Use the correct, framework-compliant 'routing_key' attribute name
-    response = interrupt({"routing_key": state.input_key})
+    # FIXED: Pass all three strict positional parameters required by the modernized framework contract!
+    response = interrupt(
+        routing_key=state.input_key,
+        business_context="framework_base_compliance",
+        payload={"status": "AWAITING_TEST_SIGN_OFF"},
+    )
     return {"result_data": response}
 
 
@@ -61,7 +67,7 @@ def test_full_orchestration_and_negative_failure_modes():
             "user_claims": ["basic_analyst"],
         }
     }
-    list(execute_graph(graph, {"input_key": "TX_777"}, config))
+    list(execute_graph(graph, {"input_key": f"TX_{uuid.uuid4()}"}, config))
     assert graph.get_state(config).next == ("interrupt_node",)
 
 
@@ -106,14 +112,8 @@ def test_resumption_retries_after_unauthorized_interception():
 
 def test_immutable_history_retrieval_after_graph_reaches_end():
     """Validates that even after a workflow has navigated to END, its thread_id pointer
-
     is retained, and its historical resolution ledger remains fully queryable out-of-band.
     """
-    import uuid
-
-    from langgraph_gatekeeper import execute_graph, get_historical_thread_status, resume
-    from tests.test_framework import graph
-
     thread_id = f"t_history_{uuid.uuid4()}"
     routing_token = f"TOKEN_HIST_{uuid.uuid4()}"
 
@@ -128,8 +128,8 @@ def test_immutable_history_retrieval_after_graph_reaches_end():
     # 1. INITIAL PASS: Launch the thread and halt at the interrupt node
     list(execute_graph(graph, {"input_key": routing_token}, analyst_config))
 
-    # Verify the tracking registry shows the thread is PENDING out-of-band
-    pending_metrics = get_historical_thread_status(graph, routing_token)
+    # FIXED: Update historical tracking test assertion configuration parameters to match the unified config contract!
+    pending_metrics = get_historical_thread_status(graph, analyst_config)
     assert pending_metrics["status"] == "PENDING"
     assert pending_metrics["thread_id"] == thread_id
 
@@ -142,15 +142,13 @@ def test_immutable_history_retrieval_after_graph_reaches_end():
         }
     }
 
-    # Wake up the graph. The execution loop completes the edge cascade and lands on END
     list(
         resume(graph, routing_token, "Approved Final Ledger Settlement", manager_config)
     )
 
     # 3. HISTORY LOOKUP PASS: Query the status long after the graph is dead and gone!
-    final_metrics = get_historical_thread_status(graph, routing_token)
+    final_metrics = get_historical_thread_status(graph, manager_config)
 
-    # Verify that the pointer was NOT deleted, and the history lookup is complete!
     assert final_metrics["status"] == "PROCESSED"
     assert final_metrics["thread_id"] == thread_id
     assert "Approved Final Ledger Settlement" in final_metrics["resolution"]

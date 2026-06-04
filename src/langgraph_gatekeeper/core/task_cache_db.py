@@ -9,7 +9,6 @@ TASK_CACHE_DB_PATH = os.path.join(_CURRENT_MODULE_DIR, "task_cache.db")
 def init_task_cache_db() -> None:
     """Initializes the immutable metadata staging and tracking table schema safely."""
     with sqlite3.connect(TASK_CACHE_DB_PATH) as conn:
-        # Renamed table cleanly to 'tasks' to match soft-delete ledger semantics
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
@@ -21,7 +20,6 @@ def init_task_cache_db() -> None:
             )
             """
         )
-        # Optimization Index: Accelerates composite context matching queries
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_tasks_thread_context 
@@ -65,7 +63,7 @@ def get_token_by_business_context(
 ) -> Optional[Dict[str, str]]:
     """COMPOSITE KEY LOOKUP: Matches the unique active task utilizing composite primary indicators.
 
-    Returns a dictionary holding both the 'token_id' and the raw 'routing_key' handle.
+    Returns a dictionary holding both the string 'token_id' and the 'routing_key' handle safely.
     """
     with sqlite3.connect(TASK_CACHE_DB_PATH) as conn:
         cursor = conn.execute(
@@ -77,7 +75,8 @@ def get_token_by_business_context(
         )
         row = cursor.fetchone()
         if row:
-            return {"token_id": row[0], "routing_key": row[1]}
+            # FIXED: Unpack individual tuple string array values from the database record row!
+            return {"token_id": str(row[0]), "routing_key": str(row[1])}
         return None
 
 
