@@ -12,6 +12,17 @@ from langgraph_gatekeeper.core.task_cache_db import (
 )
 
 
+def _inject_resumption_context(config: Dict[str, Any], business_context: str) -> None:
+    """Helper function to bind the active action and context variables
+
+    to the configuration envelope before resumption.
+    """
+    if "configurable" not in config:
+        config["configurable"] = {}
+    config["configurable"]["active_action"] = "resume"
+    config["configurable"]["active_business_context"] = business_context
+
+
 def interrupt(
     routing_key: str, business_context: str, required_claim: str, payload: dict
 ) -> Any:
@@ -73,39 +84,14 @@ def execute_graph(
 
 
 def resume(
-    graph: Any, routing_key: str, user_input: Any, config: Dict[str, Any]
-) -> Generator[Dict[str, Any], None, None]:
-    """LEGACY HOOK: Direct Instance Routing Key Matching."""
-    init_task_cache_db()
-    token_id = get_active_task_token(routing_key)
-
-    if not token_id:
-        raise ValueError(
-            f"No active interrupt token found matching routing key '{routing_key}'."
-        )
-
-    stream = graph.stream(Command(resume={token_id: user_input}), config=config)
-    iterator = iter(stream)
-
-    try:
-        first_event = next(iterator)
-    except StopIteration:
-        consume_active_task_token(routing_key)
-        return
-
-    consume_active_task_token(routing_key)
-
-    yield first_event
-    for event in iterator:
-        yield event
-
-
-def resume_by_context(
     graph: Any, business_context: str, user_input: Any, config: Dict[str, Any]
 ) -> Generator[Dict[str, Any], None, None]:
     """NEW COMPOSITE HOOK: Context-Aware Enterprise Resumption."""
     init_task_cache_db()
-    thread_id = config.get("configurable", {}).get("thread_id")
+    _inject_resumption_context(config, business_context)
+
+    configurable = config.get("configurable") or {}
+    thread_id = configurable.get("thread_id")
 
     if not thread_id:
         raise ValueError(

@@ -10,7 +10,6 @@ from langgraph_gatekeeper.core.orchestrator import (
     execute_graph,
     interrupt,
     resume,
-    resume_by_context,
 )
 
 # Import the core orchestrator and ledger components natively
@@ -34,8 +33,6 @@ def compiled_test_graph():
     """Compiles an authentic, live StateGraph canvas that implements human-in-the-loop branching."""
 
     def test_gate_node(state: Dict[str, Any]) -> dict:
-        # Enforce the strict framework interrupt contract requiring a business context token
-        # FIXED: Forwarded the required_claim positional token to match Task 1 contracts
         response = interrupt(
             "TEST_HAZMAT_KEY_999",
             "hazmat_dispatch_compliance",
@@ -78,7 +75,7 @@ def test_full_orchestration_lifecycle_using_composite_context_resumption(
     manager_input_payload = "Approved and signed off under compliance profile Alpha."
 
     events_turn_2 = list(
-        resume_by_context(
+        resume(
             graph=compiled_test_graph,
             business_context="hazmat_dispatch_compliance",
             user_input=manager_input_payload,
@@ -102,7 +99,7 @@ def test_resume_by_context_raises_value_error_if_composite_key_fails_to_match(
 
     with pytest.raises(ValueError) as exc_info:
         list(
-            resume_by_context(
+            resume(
                 graph=compiled_test_graph,
                 business_context="unrecognized_ghost_context",
                 user_input="Should Fail",
@@ -133,7 +130,7 @@ def test_resumption_tuple_string_regression_protection(compiled_test_graph):
     )
 
     list(
-        resume_by_context(
+        resume(
             graph=compiled_test_graph,
             business_context="hazmat_dispatch_compliance",
             user_input=complex_input_signature,
@@ -151,7 +148,6 @@ def consecutive_collision_graph():
     """Compiles a StateGraph with two consecutive human-in-the-loop nodes."""
 
     def node_alpha(state: Dict[str, Any]) -> dict:
-        # FIXED: Aligned parameters to include strict required_claim setting
         response = interrupt(
             "KEY_ALPHA_111",
             "shared_business_context",
@@ -161,7 +157,6 @@ def consecutive_collision_graph():
         return {"notes_alpha": str(response)}
 
     def node_beta(state: Dict[str, Any]) -> dict:
-        # FIXED: Aligned parameters to include strict required_claim setting
         response = interrupt(
             "KEY_BETA_222",
             "shared_business_context",
@@ -185,7 +180,6 @@ def test_orchestrator_bubbles_up_database_collision_exceptions(compiled_test_gra
     """API INTEGRITY SUITE: Verifies database exceptions bubble out of the core orchestrator."""
 
     def dev_two_node(state: Dict[str, Any]) -> dict:
-        # FIXED: Re-compiled truncated loop slice and forward required_claim positional arg
         interrupt(
             "DEV_TWO_UNIQUE_ROUTING_KEY",
             "hazmat_dispatch_compliance",

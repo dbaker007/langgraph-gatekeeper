@@ -22,14 +22,14 @@ class DefaultDictionaryPolicyProvider(BaseSecurityPolicyProvider):
 
     def __init__(self, policy_matrix: dict):
         self.matrix = (
-            policy_matrix  # Layout: {"node_name": {"action_verb": "required_claim"}}
+            policy_matrix  # Layout: {"node_name": {"required_claim": "claim_string"}}
         )
 
     def authorize(self, user_claims: List[str], resource: str, action: str) -> bool:
-        resource_rules = self.matrix.get(resource, {})
-        required_claim = resource_rules.get(action)
+        node_rules = self.matrix.get(resource, {})
+        required_claim = node_rules.get("required_claim")
 
-        # If no explicit access restriction is mapped for this action verb, clear it flatly
+        # If no explicit access restriction is mapped for this node, clear it flatly
         if not required_claim:
             return True
 
@@ -37,19 +37,47 @@ class DefaultDictionaryPolicyProvider(BaseSecurityPolicyProvider):
 
 
 # =============================================================================
-# 2. AUTOMATED GRAPH COMPILATION INTERCEPTOR (CONTEXTVAR BOUNDED)
+# 2. THE FLUENT COMPILER GRAPH BUILDER PROXY
 # =============================================================================
-def compile_graph_with_authorization(
-    workflow: Any, policy_provider: Any, **kwargs: Any
-) -> Any:
-    """An architectural firewall that loops over canvas nodes right before compilation
+class SecureGraphBuilder:
+    """A fluent, chainable wrapper factory object that dynamically configures
 
-    and injects a framework-level pre-execution security closure.
+    static entry gates while delegating execution queries to the compiled graph.
     """
-    if isinstance(policy_provider, dict):
-        active_provider = DefaultDictionaryPolicyProvider(policy_provider)
-    else:
-        active_provider = policy_provider
+
+    def __init__(self, compiled_graph: Any, policy_matrix: dict):
+        self._compiled_graph = compiled_graph
+        self._matrix = policy_matrix
+
+    def enforce_entry(
+        self, node_name: str, required_claim: str
+    ) -> "SecureGraphBuilder":
+        """Chains a baseline entry claim rule directly to a target graph node."""
+        # Dynamically populate our internal memory structure out-of-band
+        self._matrix[node_name] = {"required_claim": required_claim}
+        return self
+
+    def __getattr__(self, name: str) -> Any:
+        # Pass through all standard graph methods (.get_state, .stream, etc.) unhindered
+        return getattr(self._compiled_graph, name)
+
+
+def compile_graph_with_authorization(
+    workflow: Any, **kwargs: Any
+) -> SecureGraphBuilder:
+    """An architectural firewall that loops over canvas nodes right before compilation
+    and returns a chainable SecureGraphBuilder to enforce entry gates strictly.
+    """
+    from langgraph_gatekeeper.core.task_cache_db import get_token_by_business_context
+
+    policy_matrix = {}
+    active_provider = DefaultDictionaryPolicyProvider(policy_matrix)
+
+    # Internal safe dispatcher to execute both raw Python functions and compiled Runnables
+    def _dispatch_runnable(runnable_obj: Any, *a: Any, **kw: Any) -> Any:
+        if hasattr(runnable_obj, "invoke") and callable(runnable_obj.invoke):
+            return runnable_obj.invoke(*a, **kw)
+        return runnable_obj(*a, **kw)
 
     for node_name in list(workflow.nodes.keys()):
         node_spec = workflow.nodes[node_name]
@@ -63,14 +91,10 @@ def compile_graph_with_authorization(
                 # -----------------------------------------------------------------
                 # NATIVE EXCEPTION-BOUND EXTRACTION
                 # -----------------------------------------------------------------
-                # Pull the active streaming configuration context directly from LangGraph's
-                # global context variable container out-of-band.
                 try:
                     config_dict = get_config() or {}
                 except Exception:
-                    # get_config() failed because LangGraph is running an out-of-band
-                    # compile, setup, or definition loop. Pass through instantly unhindered.
-                    return orig_runnable.invoke(*args, **kwargs)
+                    return _dispatch_runnable(orig_runnable, *args, **kwargs)
 
                 if not isinstance(config_dict, dict):
                     config_dict = getattr(
@@ -94,32 +118,57 @@ def compile_graph_with_authorization(
 
                 # If this frame belongs to an alternative node lane, bypass checking safely
                 if active_executing_node and active_executing_node != node_key:
-                    return orig_runnable.invoke(*args, **kwargs)
+                    return _dispatch_runnable(orig_runnable, *args, **kwargs)
+
+                # Fail-open system pass-through for global checkpointer updates (empty namespace strings)
+                if ns_string == "":
+                    return _dispatch_runnable(orig_runnable, *args, **kwargs)
 
                 # -----------------------------------------------------------------
-                # STRICT CLAIMS RUNTIME FIREWALL
+                # MUTUALLY EXCLUSIVE TWO-CLASS PERMISSION FIREWALL
                 # -----------------------------------------------------------------
                 user_id = configurable.get("user_id", "anonymous_user")
                 user_claims = configurable.get("user_claims", [])
+                thread_id = configurable.get("thread_id", "anonymous_thread")
 
-                # High-Accuracy Turn Decoding independent of history string structures
-                is_resuming_flag = (
-                    config_dict.get("__pregel_resuming") is True
-                    or configurable.get("__pregel_resuming") is True
-                )
-                is_resumption = is_resuming_flag and (active_executing_node == node_key)
-                action_verb = "approve" if is_resumption else "execute"
+                # Extract the un-spoofable action parameter injected by our orchestration entry points
+                active_action = configurable.get("active_action", "execute")
 
-                is_authorized = active_provider.authorize(
-                    user_claims=user_claims, resource=node_key, action=action_verb
-                )
-
-                if not is_authorized:
-                    raise PermissionError(
-                        f"SECURITY INTERCEPTION: User '{user_id}' denied access to node '{node_key}'."
+                if active_action == "resume":
+                    # -------------------------------------------------------------
+                    # CLASS 2: DYNAMIC RESUMPTION HURDLE PROTECTION
+                    # -------------------------------------------------------------
+                    # Extract the threaded dynamic business context identifier cleanly from the envelope
+                    biz_ctx = configurable.get(
+                        "active_business_context", "default_context"
                     )
 
-                return orig_runnable.invoke(*args, **kwargs)
+                    # Query the active database ledger out-of-band to recover the hurdle requirement
+                    token_data = get_token_by_business_context(thread_id, biz_ctx)
+                    required_claim = (
+                        token_data.get("required_claim") if token_data else ""
+                    )
+
+                    # Enforce the strict dynamic hurdle permission check strictly!
+                    if required_claim and required_claim not in user_claims:
+                        raise PermissionError(
+                            f"SECURITY INTERCEPTION: User '{user_id}' denied resumption access to node '{node_key}'. "
+                            f"Missing required dynamic hurdle claim '{required_claim}'."
+                        )
+                else:
+                    # -------------------------------------------------------------
+                    # CLASS 1: BASELINE STATIC NODE ENTRY SECURITY CHECK
+                    # -------------------------------------------------------------
+                    is_authorized_entry = active_provider.authorize(
+                        user_claims=user_claims, resource=node_key, action="execute"
+                    )
+
+                    if not is_authorized_entry:
+                        raise PermissionError(
+                            f"SECURITY INTERCEPTION: User '{user_id}' denied access to node '{node_key}'."
+                        )
+
+                return _dispatch_runnable(orig_runnable, *args, **kwargs)
 
             orig_name = getattr(
                 getattr(original_runnable, "func", original_runnable),
@@ -127,9 +176,17 @@ def compile_graph_with_authorization(
                 node_key,
             )
             pre_execution_security_guard.__name__ = orig_name
-            pre_execution_security_guard.__signature__ = inspect.signature(
-                original_runnable.invoke
-            )
+
+            try:
+                pre_execution_security_guard.__signature__ = inspect.signature(
+                    original_runnable
+                )
+            except (ValueError, TypeError):
+                if hasattr(original_runnable, "invoke"):
+                    pre_execution_security_guard.__signature__ = inspect.signature(
+                        original_runnable.invoke
+                    )
+
             return pre_execution_security_guard
 
         secure_closure = create_secure_closure(node_name, original_runnable)
@@ -141,4 +198,5 @@ def compile_graph_with_authorization(
         else:
             workflow.nodes[node_name] = secure_closure
 
-    return workflow.compile(**kwargs)
+    compiled_graph = workflow.compile(**kwargs)
+    return SecureGraphBuilder(compiled_graph, policy_matrix)

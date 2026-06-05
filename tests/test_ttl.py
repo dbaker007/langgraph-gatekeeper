@@ -51,14 +51,6 @@ def kill_switch(state: MockTtlState, config: Optional[RunnableConfig] = None) ->
     return {}
 
 
-TTL_POLICIES = {
-    "assign_agent_ttl": {
-        "execute": "basic_analyst",
-        "approve": "executive_underwriter",
-    },
-    "kill_switch": {"execute": "infra_eviction_clearance"},
-}
-
 workflow = StateGraph(MockTtlState)
 workflow.add_node("assign_agent_ttl", assign_agent_ttl_node)
 workflow.add_node("kill_switch", kill_switch)  # Registering the mandatory system node
@@ -71,8 +63,10 @@ conn = sqlite3.connect(MOCK_TTL_CHECKPOINT_DB, check_same_thread=False)
 checkpointer = SqliteSaver(conn)
 
 # Fully isolated local graph asset setup cut from test_security.py
-mock_secure_ttl_graph = compile_graph_with_authorization(
-    workflow, checkpointer=checkpointer, policy_provider=TTL_POLICIES
+mock_secure_ttl_graph = (
+    compile_graph_with_authorization(workflow, checkpointer=checkpointer)
+    .enforce_entry("assign_agent_ttl", required_claim="basic_analyst")
+    .enforce_entry("kill_switch", required_claim="infra_eviction_clearance")
 )
 
 
