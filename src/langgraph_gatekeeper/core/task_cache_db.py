@@ -20,11 +20,11 @@ def init_task_cache_db() -> None:
                 interrupt_id TEXT NOT NULL,
                 thread_id TEXT NOT NULL,
                 business_context TEXT NOT NULL,
+                required_claim TEXT NOT NULL, -- FIXED: Added unified security metadata column!
                 status TEXT NOT NULL DEFAULT 'ACTIVE'
             )
             """
         )
-        # FIXED: Enforce a strict Partial Unique Constraint to eliminate silent parallel collisions!
         conn.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_unique_active_context 
@@ -36,39 +36,51 @@ def init_task_cache_db() -> None:
 
 
 def save_active_task_token(
-    routing_key: str, interrupt_id: str, thread_id: str, business_context: str
+    routing_key: str,
+    interrupt_id: str,
+    thread_id: str,
+    business_context: str,
+    required_claim: str,
 ) -> None:
-    """Inserts a task tracking token row along with its business context metrics.
+    """Inserts a task tracking token row along with its business context and claim metrics.
 
     Uses standard INSERT semantics to guarantee that any Partial Unique Index violations
     cause a hard sqlite3.IntegrityError to bubble up, rather than silently deleting old data.
     """
     with sqlite3.connect(TASK_CACHE_DB_PATH) as conn:
         try:
-            # FIXED: Change from INSERT OR REPLACE to a strict INSERT statement!
             conn.execute(
                 """
-                INSERT INTO tasks (routing_key, interrupt_id, thread_id, business_context, status)
-                VALUES (?, ?, ?, ?, 'ACTIVE')
+                INSERT INTO tasks (routing_key, interrupt_id, thread_id, business_context, required_claim, status)
+                VALUES (?, ?, ?, ?, ?, 'ACTIVE')
                 """,
-                (routing_key, interrupt_id, thread_id, business_context),
+                (
+                    routing_key,
+                    interrupt_id,
+                    thread_id,
+                    business_context,
+                    required_claim,
+                ),
             )
             conn.commit()
         except sqlite3.IntegrityError as err:
-            # If the exception happened because the exact same primary key is being updated,
-            # we perform a targeted UPDATE pass to preserve standard LangGraph loop behaviors.
             if "UNIQUE constraint failed: tasks.routing_key" in str(err):
                 conn.execute(
                     """
                     UPDATE tasks 
-                    SET interrupt_id = ?, thread_id = ?, business_context = ?, status = 'ACTIVE'
+                    SET interrupt_id = ?, thread_id = ?, business_context = ?, required_claim = ?, status = 'ACTIVE'
                     WHERE routing_key = ?
                     """,
-                    (interrupt_id, thread_id, business_context, routing_key),
+                    (
+                        interrupt_id,
+                        thread_id,
+                        business_context,
+                        required_claim,
+                        routing_key,
+                    ),
                 )
                 conn.commit()
             else:
-                # If it's a Partial Unique Index collision (thread_id + context), re-raise it forcefully!
                 raise err
 
 
@@ -88,20 +100,24 @@ def get_token_by_business_context(
 ) -> Optional[Dict[str, str]]:
     """COMPOSITE KEY LOOKUP: Matches the unique active task utilizing composite primary indicators.
 
-    Returns a dictionary holding both the string 'token_id' and the 'routing_key' handle safely.
+    Returns a dictionary holding 'token_id', 'routing_key', and 'required_claim' safely.
     """
     with sqlite3.connect(TASK_CACHE_DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT interrupt_id, routing_key FROM tasks 
+            SELECT interrupt_id, routing_key, required_claim FROM tasks 
             WHERE thread_id = ? AND business_context = ? AND status = 'ACTIVE'
             """,
             (thread_id, business_context),
         )
         row = cursor.fetchone()
         if row:
-            # FIXED: Explicitly target index 0 and index 1 of the SQL database result tuple row!
-            return {"token_id": str(row[0]), "routing_key": str(row[1])}
+            # FIXED: Package the newly extracted required_claim element safely!
+            return {
+                "token_id": str(row[0]),
+                "routing_key": str(row[1]),
+                "required_claim": str(row[2]),
+            }
         return None
 
 

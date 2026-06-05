@@ -1,4 +1,5 @@
 import sqlite3
+import uuid
 from typing import Any, Dict
 
 import pytest
@@ -34,12 +35,13 @@ def compiled_test_graph():
 
     def test_gate_node(state: Dict[str, Any]) -> dict:
         # Enforce the strict framework interrupt contract requiring a business context token
+        # FIXED: Forwarded the required_claim positional token to match Task 1 contracts
         response = interrupt(
-            routing_key="TEST_HAZMAT_KEY_999",
-            business_context="hazmat_dispatch_compliance",
-            payload={"status": "AWAITING_REVIEW"},
+            "TEST_HAZMAT_KEY_999",
+            "hazmat_dispatch_compliance",
+            "executive_underwriter",
+            {"status": "AWAITING_REVIEW"},
         )
-        # Capture the human's response text and store it cleanly in the state logs
         return {"manager_notes": str(response)}
 
     workflow = StateGraph(dict)
@@ -58,12 +60,7 @@ def compiled_test_graph():
 def test_full_orchestration_lifecycle_using_composite_context_resumption(
     compiled_test_graph,
 ):
-    """END-TO-END ORCHESTRATION VERIFICATION SUITE.
-
-    Proves that the framework can securely freeze an active workflow graph, log its
-    business context parameter, and subsequently unblock it using only what the
-    resumer knows at the moment of impact: the thread_id and the business context constant.
-    """
+    """END-TO-END ORCHESTRATION VERIFICATION SUITE."""
     thread_id = "thread_lifecycle_test_555"
     config = {
         "configurable": {
@@ -73,21 +70,13 @@ def test_full_orchestration_lifecycle_using_composite_context_resumption(
         }
     }
 
-    # -------------------------------------------------------------------------
-    # TURN 1: Initial pass. Run the engine stream forward into the interrupt hurdle
-    # -------------------------------------------------------------------------
-    events_turn_1 = list(execute_graph(compiled_test_graph, {}, config))
+    list(execute_graph(compiled_test_graph, {}, config))
 
-    # Verify the thread reached an isolated freeze point on disk
     snapshot_turn_1 = compiled_test_graph.get_state(config)
     assert snapshot_turn_1.next == ("gate_node",)
 
-    # -------------------------------------------------------------------------
-    # TURN 2: Resumption pass. Unblock utilizing our new composite key endpoint!
-    # -------------------------------------------------------------------------
     manager_input_payload = "Approved and signed off under compliance profile Alpha."
 
-    # We call the new single-responsibility function passing only what the resumer knows!
     events_turn_2 = list(
         resume_by_context(
             graph=compiled_test_graph,
@@ -97,11 +86,8 @@ def test_full_orchestration_lifecycle_using_composite_context_resumption(
         )
     )
 
-    # Verify that the graph safely cleared the freeze state hurdle and ran straight to END
     final_snapshot = compiled_test_graph.get_state(config)
     assert not final_snapshot.next
-
-    # Verify the state data channel captured the supervisor's text signature cleanly
     assert final_snapshot.values.get("manager_notes") == manager_input_payload
 
 
@@ -112,10 +98,8 @@ def test_resume_by_context_raises_value_error_if_composite_key_fails_to_match(
     thread_id = "thread_failure_test_666"
     config = {"configurable": {"thread_id": thread_id}}
 
-    # Fire Turn 1 to seed an active interrupt under the hazmat context identifier
     list(execute_graph(compiled_test_graph, {}, config))
 
-    # Attempting to resume using an unrecognized ghost context parameter string must drop a ValueError
     with pytest.raises(ValueError) as exc_info:
         list(
             resume_by_context(
@@ -132,11 +116,7 @@ def test_resume_by_context_raises_value_error_if_composite_key_fails_to_match(
 
 
 def test_resumption_tuple_string_regression_protection(compiled_test_graph):
-    """REGRESSION SUITE: Verifies that raw string extraction from row data objects is clean.
-
-    Proves that special characters, quotes, or trailing commas inside the manager's
-    text input signature string do not trigger tuple string casting crashes.
-    """
+    """REGRESSION SUITE: Verifies that raw string extraction from row data objects is clean."""
     thread_id = "thread_tuple_protection_777"
     config = {
         "configurable": {
@@ -146,15 +126,12 @@ def test_resumption_tuple_string_regression_protection(compiled_test_graph):
         }
     }
 
-    # Fire Turn 1 to seed the active interrupt record row into the tasks ledger table
     list(execute_graph(compiled_test_graph, {}, config))
 
-    # Use a signature payload that includes complex nested string layouts
     complex_input_signature = (
         "Approved, signed, and certified (Compliance Vector: 'Alpha-7', Node: #4)."
     )
 
-    # Wake the execution pipeline up using our single-responsibility context function
     list(
         resume_by_context(
             graph=compiled_test_graph,
@@ -164,7 +141,6 @@ def test_resumption_tuple_string_regression_protection(compiled_test_graph):
         )
     )
 
-    # Confirm the graph ran cleanly to END and extracted a pure Python string value
     final_snapshot = compiled_test_graph.get_state(config)
     assert not final_snapshot.next
     assert final_snapshot.values.get("manager_notes") == complex_input_signature
@@ -172,25 +148,25 @@ def test_resumption_tuple_string_regression_protection(compiled_test_graph):
 
 @pytest.fixture
 def consecutive_collision_graph():
-    """Compiles a StateGraph with two consecutive human-in-the-loop nodes.
-
-    Both nodes trigger an interrupt using the exact same business context string,
-    enabling a true integration test for concurrent active constraints.
-    """
+    """Compiles a StateGraph with two consecutive human-in-the-loop nodes."""
 
     def node_alpha(state: Dict[str, Any]) -> dict:
+        # FIXED: Aligned parameters to include strict required_claim setting
         response = interrupt(
-            routing_key="KEY_ALPHA_111",
-            business_context="shared_business_context",
-            payload={"step": "ALPHA"},
+            "KEY_ALPHA_111",
+            "shared_business_context",
+            "executive_underwriter",
+            {"step": "ALPHA"},
         )
         return {"notes_alpha": str(response)}
 
     def node_beta(state: Dict[str, Any]) -> dict:
+        # FIXED: Aligned parameters to include strict required_claim setting
         response = interrupt(
-            routing_key="KEY_BETA_222",
-            business_context="shared_business_context",
-            payload={"step": "BETA"},
+            "KEY_BETA_222",
+            "shared_business_context",
+            "executive_underwriter",
+            {"step": "BETA"},
         )
         return {"notes_beta": str(response)}
 
@@ -206,17 +182,15 @@ def consecutive_collision_graph():
 
 
 def test_orchestrator_bubbles_up_database_collision_exceptions(compiled_test_graph):
-    """API INTEGRITY SUITE: Verifies database exceptions bubble out of the core orchestrator.
-
-    Simulates a multi-developer collision where a completely separate microservice graph
-    attempts to claim an active (thread_id, business_context) slot that is already locked.
-    """
+    """API INTEGRITY SUITE: Verifies database exceptions bubble out of the core orchestrator."""
 
     def dev_two_node(state: Dict[str, Any]) -> dict:
+        # FIXED: Re-compiled truncated loop slice and forward required_claim positional arg
         interrupt(
-            routing_key="DEV_TWO_UNIQUE_ROUTING_KEY",
-            business_context="hazmat_dispatch_compliance",
-            payload={"status": "DEV_TWO_ATTEMPT"},
+            "DEV_TWO_UNIQUE_ROUTING_KEY",
+            "hazmat_dispatch_compliance",
+            "executive_underwriter",
+            {"status": "DEV_TWO_ATTEMPT"},
         )
         return {}
 
@@ -235,10 +209,50 @@ def test_orchestrator_bubbles_up_database_collision_exceptions(compiled_test_gra
         }
     }
 
-    # 1. Graph A runs and claims the active slot natively
     list(execute_graph(compiled_test_graph, {}, config))
 
-    # 2. Graph B runs on the same channel parameters.
-    # With strict INSERT semantics active, the Partial Unique Index triggers a hard IntegrityError!
     with pytest.raises(sqlite3.IntegrityError):
         list(execute_graph(dev_two_compiled_graph, {}, config))
+
+
+def test_orchestrator_saves_and_surfaces_required_claim_metadata_lifecycle():
+    """TDD FOCUS - TASK 1: Verifies the public orchestrator tracks 'required_claim'."""
+    from langgraph_gatekeeper.core.task_cache_db import get_token_by_business_context
+
+    def node_strict_claim(state: dict) -> dict:
+        interrupt("STRICT_TDD_KEY_111", "strict_context", "executive_underwriter", {})
+        return {}
+
+    builder_1 = StateGraph(dict)
+    builder_1.add_node("gate_strict", node_strict_claim)
+    builder_1.add_edge(START, "gate_strict")
+    builder_1.add_edge("gate_strict", END)
+    graph_strict = builder_1.compile(checkpointer=MemorySaver())
+
+    config_strict = {"configurable": {"thread_id": "thread_strict_tdd_111"}}
+    list(execute_graph(graph_strict, {}, config_strict))
+
+    token_data_strict = get_token_by_business_context(
+        "thread_strict_tdd_111", "strict_context"
+    )
+    assert token_data_strict is not None
+    assert token_data_strict["required_claim"] == "executive_underwriter"
+
+    def node_no_permission(state: dict) -> dict:
+        interrupt("OPEN_TDD_KEY_222", "open_context", "", {})
+        return {}
+
+    builder_2 = StateGraph(dict)
+    builder_2.add_node("gate_open", node_no_permission)
+    builder_2.add_edge(START, "gate_open")
+    builder_2.add_edge("gate_open", END)
+    graph_open = builder_2.compile(checkpointer=MemorySaver())
+
+    config_open = {"configurable": {"thread_id": "thread_open_tdd_222"}}
+    list(execute_graph(graph_open, {}, config_open))
+
+    token_data_open = get_token_by_business_context(
+        "thread_open_tdd_222", "open_context"
+    )
+    assert token_data_open is not None
+    assert token_data_open["required_claim"] == ""

@@ -28,11 +28,12 @@ def entry_node(state: TestState) -> dict:
 
 
 def interrupt_node(state: TestState) -> dict:
-    # FIXED: Pass all three strict positional parameters required by the modernized framework contract!
+    # FIXED: Added the mandatory required_claim positional token matching our TDD task 1 layout!
     response = interrupt(
-        routing_key=state.input_key,
-        business_context="framework_base_compliance",
-        payload={"status": "AWAITING_TEST_SIGN_OFF"},
+        state.input_key,
+        "framework_base_compliance",
+        "executive_underwriter",
+        {"status": "AWAITING_TEST_SIGN_OFF"},
     )
     return {"result_data": response}
 

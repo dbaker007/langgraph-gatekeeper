@@ -3,7 +3,6 @@ from typing import Any, Dict, Generator, Optional
 from langgraph.types import Command
 from langgraph.types import interrupt as langgraph_native_interrupt
 
-# FIXED: Removed the undefined get_thread_id_by_routing_key from the import array!
 from langgraph_gatekeeper.core.task_cache_db import (
     consume_active_task_token,
     get_active_task_token,
@@ -13,15 +12,19 @@ from langgraph_gatekeeper.core.task_cache_db import (
 )
 
 
-def interrupt(routing_key: str, business_context: str, payload: dict) -> Any:
+def interrupt(
+    routing_key: str, business_context: str, required_claim: str, payload: dict
+) -> Any:
     """THE FRAMEWORK'S CUSTOM INTERRUPT CONTRACT WRAPPER.
 
     Enforces a strict parameter structure requiring application tool builders to
-    provide an explicit business domain context alongside their routing keys.
+    provide an explicit business domain context and claim requirements alongside their routing keys.
     """
+    # FIXED: Capture and pack the required_claim token directly inside the payload dictionary
     enriched_payload = {
         "routing_key": routing_key,
         "business_context": business_context,
+        "required_claim": required_claim,
         **payload,
     }
     return langgraph_native_interrupt(enriched_payload)
@@ -47,15 +50,23 @@ def execute_graph(
                 if isinstance(inner_payload, dict):
                     target_key = inner_payload.get("routing_key", "")
                     biz_ctx = inner_payload.get("business_context", "default_context")
+                    # FIXED: Extract out-of-band during the stream interception loop pass!
+                    req_claim = inner_payload.get("required_claim", "")
                 else:
                     target_key = ""
                     biz_ctx = "default_context"
+                    req_claim = ""
 
                 interrupt_id = getattr(item, "id", None)
 
                 if target_key and interrupt_id:
+                    # FIXED: Forward our new string contract straight down to the schema tables!
                     save_active_task_token(
-                        target_key, interrupt_id, thread_id, business_context=biz_ctx
+                        target_key,
+                        interrupt_id,
+                        thread_id,
+                        business_context=biz_ctx,
+                        required_claim=req_claim,
                     )
 
         yield event
@@ -64,10 +75,7 @@ def execute_graph(
 def resume(
     graph: Any, routing_key: str, user_input: Any, config: Dict[str, Any]
 ) -> Generator[Dict[str, Any], None, None]:
-    """LEGACY HOOK: Direct Instance Routing Key Matching.
-
-    Maintains 100% backward compatibility for existing application code paths.
-    """
+    """LEGACY HOOK: Direct Instance Routing Key Matching."""
     init_task_cache_db()
     token_id = get_active_task_token(routing_key)
 
@@ -95,11 +103,7 @@ def resume(
 def resume_by_context(
     graph: Any, business_context: str, user_input: Any, config: Dict[str, Any]
 ) -> Generator[Dict[str, Any], None, None]:
-    """NEW COMPOSITE HOOK: Context-Aware Enterprise Resumption.
-
-    Wakes up a frozen thread utilizing exactly what the resumer knows at the moment of impact:
-    the thread_id (extracted from config) and the specific business domain context.
-    """
+    """NEW COMPOSITE HOOK: Context-Aware Enterprise Resumption."""
     init_task_cache_db()
     thread_id = config.get("configurable", {}).get("thread_id")
 
