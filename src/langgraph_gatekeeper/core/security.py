@@ -39,7 +39,7 @@ class DefaultDictionaryPolicyProvider(BaseSecurityPolicyProvider):
 # =============================================================================
 # 2. THE FLUENT COMPILER GRAPH BUILDER PROXY
 # =============================================================================
-class SecureGraphBuilder:
+class SecureCompiledGraph:
     """A fluent, chainable wrapper factory object that dynamically configures
 
     static entry gates while delegating execution queries to the compiled graph.
@@ -51,7 +51,7 @@ class SecureGraphBuilder:
 
     def enforce_entry(
         self, node_name: str, required_claim: str
-    ) -> "SecureGraphBuilder":
+    ) -> "SecureCompiledGraph":
         """Chains a baseline entry claim rule directly to a target graph node."""
         # Dynamically populate our internal memory structure out-of-band
         self._matrix[node_name] = {"required_claim": required_claim}
@@ -61,10 +61,25 @@ class SecureGraphBuilder:
         # Pass through all standard graph methods (.get_state, .stream, etc.) unhindered
         return getattr(self._compiled_graph, name)
 
+    def update_state(self, config: dict, values: dict, as_node: str = None) -> Any:
+        """PROGRAMMATIC FIREWALL: Hard-blocks unauthorized out-of-band state mutations."""
+        configurable = config.get("configurable") or {}
+        user_id = configurable.get("user_id", "anonymous_user")
+        user_claims = configurable.get("user_claims", [])
+
+        # STRICT STRING MATCHING: Only checks for the presence of the literal string token!
+        if "mutate_state" not in user_claims:
+            raise PermissionError(
+                f"SECURITY INTERCEPTION: User '{user_id}' denied administrative state mutation. "
+                f"Missing required permission 'mutate_state'."
+            )
+
+        return self._compiled_graph.update_state(config, values, as_node=as_node)
+
 
 def compile_graph_with_authorization(
     workflow: Any, **kwargs: Any
-) -> SecureGraphBuilder:
+) -> SecureCompiledGraph:
     """An architectural firewall that loops over canvas nodes right before compilation
     and returns a chainable SecureGraphBuilder to enforce entry gates strictly.
     """
@@ -199,4 +214,4 @@ def compile_graph_with_authorization(
             workflow.nodes[node_name] = secure_closure
 
     compiled_graph = workflow.compile(**kwargs)
-    return SecureGraphBuilder(compiled_graph, policy_matrix)
+    return SecureCompiledGraph(compiled_graph, policy_matrix)

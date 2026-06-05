@@ -197,3 +197,28 @@ def test_framework_permits_internal_checkpointer_serialization_passes():
 
     final_state = functional_secure_graph.get_state(valid_user_config)
     assert final_state.next == ()
+
+
+def test_proxy_lock_blocks_unauthorized_state_mutations():
+    """TDD FOCUS - TASK 5: Verifies 'update_state' is programmatically protected.
+
+    1. Positive Pass: A system actor holding 'mutate_state' can modify state.
+    2. Negative Failure: A user lacking 'mutate_state' is forcefully blocked.
+
+    This test will fail immediately because the proxy lock does not exist yet.
+    """
+    # 1. SETUP MALICIOUS CONFIG (Lacks 'mutate_state')
+    malicious_config = {
+        "configurable": {
+            "thread_id": f"t_mutation_hack_{uuid.uuid4()}",
+            "user_id": "malicious_actor",
+            "user_claims": ["assign_analyst"],  # Missing 'mutate_state'!
+        }
+    }
+
+    # CRITICAL ATTACK VERIFICATION: This MUST raise a PermissionError!
+    # It will fail to raise because our proxy lock is currently open.
+    with pytest.raises(PermissionError) as exc_info:
+        mock_secure_graph.update_state(malicious_config, {"result_data": "HACKED"})
+
+    assert "denied administrative state mutation" in str(exc_info.value)

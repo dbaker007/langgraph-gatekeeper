@@ -107,7 +107,7 @@ def test_out_of_band_monitor_sla_breach_forces_eviction():
     # 3. SERVICE M2M IDENTITY REGISTRATION
     LOGISTICS_DAEMON_IDENTITY = {
         "user_id": "logistics_automated_cron_worker",
-        "user_claims": ["infra_eviction_clearance"],
+        "user_claims": ["infra_eviction_clearance", "mutate_state"],
     }
     set_framework_daemon_identity(LOGISTICS_DAEMON_IDENTITY)
 
