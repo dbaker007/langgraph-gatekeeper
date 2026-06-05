@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph_gatekeeper.core.orchestrator import (
     execute_graph,
     interrupt,
+    resume,
     resume_by_context,
 )
 
@@ -167,3 +168,77 @@ def test_resumption_tuple_string_regression_protection(compiled_test_graph):
     final_snapshot = compiled_test_graph.get_state(config)
     assert not final_snapshot.next
     assert final_snapshot.values.get("manager_notes") == complex_input_signature
+
+
+@pytest.fixture
+def consecutive_collision_graph():
+    """Compiles a StateGraph with two consecutive human-in-the-loop nodes.
+
+    Both nodes trigger an interrupt using the exact same business context string,
+    enabling a true integration test for concurrent active constraints.
+    """
+
+    def node_alpha(state: Dict[str, Any]) -> dict:
+        response = interrupt(
+            routing_key="KEY_ALPHA_111",
+            business_context="shared_business_context",
+            payload={"step": "ALPHA"},
+        )
+        return {"notes_alpha": str(response)}
+
+    def node_beta(state: Dict[str, Any]) -> dict:
+        response = interrupt(
+            routing_key="KEY_BETA_222",
+            business_context="shared_business_context",
+            payload={"step": "BETA"},
+        )
+        return {"notes_beta": str(response)}
+
+    workflow = StateGraph(dict)
+    workflow.add_node("node_alpha", node_alpha)
+    workflow.add_node("node_beta", node_beta)
+
+    workflow.add_edge(START, "node_alpha")
+    workflow.add_edge("node_alpha", "node_beta")
+    workflow.add_edge("node_beta", END)
+
+    return workflow.compile(checkpointer=MemorySaver())
+
+
+def test_orchestrator_bubbles_up_database_collision_exceptions(compiled_test_graph):
+    """API INTEGRITY SUITE: Verifies database exceptions bubble out of the core orchestrator.
+
+    Simulates a multi-developer collision where a completely separate microservice graph
+    attempts to claim an active (thread_id, business_context) slot that is already locked.
+    """
+
+    def dev_two_node(state: Dict[str, Any]) -> dict:
+        interrupt(
+            routing_key="DEV_TWO_UNIQUE_ROUTING_KEY",
+            business_context="hazmat_dispatch_compliance",
+            payload={"status": "DEV_TWO_ATTEMPT"},
+        )
+        return {}
+
+    builder = StateGraph(dict)
+    builder.add_node("dev_two_gate", dev_two_node)
+    builder.add_edge(START, "dev_two_gate")
+    builder.add_edge("dev_two_gate", END)
+    dev_two_compiled_graph = builder.compile(checkpointer=MemorySaver())
+
+    thread_id = "thread_multi_developer_collision_999"
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": "director_baker",
+            "user_claims": ["admin"],
+        }
+    }
+
+    # 1. Graph A runs and claims the active slot natively
+    list(execute_graph(compiled_test_graph, {}, config))
+
+    # 2. Graph B runs on the same channel parameters.
+    # With strict INSERT semantics active, the Partial Unique Index triggers a hard IntegrityError!
+    with pytest.raises(sqlite3.IntegrityError):
+        list(execute_graph(dev_two_compiled_graph, {}, config))
