@@ -18,16 +18,16 @@ from langgraph_gatekeeper import (
 MOCK_CHECKPOINT_DB = "test_checkpoints.db"
 
 
-class TestState(BaseModel):
+class FrameworkTestState(BaseModel):
     input_key: str = ""
     result_data: str = ""
 
 
-def entry_node(state: TestState) -> dict:
+def entry_node(state: FrameworkTestState) -> dict:
     return {}
 
 
-def interrupt_node(state: TestState) -> dict:
+def interrupt_node(state: FrameworkTestState) -> dict:
     response = interrupt(
         state.input_key,
         "framework_base_compliance",
@@ -37,7 +37,7 @@ def interrupt_node(state: TestState) -> dict:
     return {"result_data": response}
 
 
-workflow = StateGraph(TestState)
+workflow = StateGraph(FrameworkTestState)
 workflow.add_node("entry_node", entry_node)
 workflow.add_node("interrupt_node", interrupt_node)
 

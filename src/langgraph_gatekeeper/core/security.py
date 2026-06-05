@@ -49,6 +49,11 @@ class SecureCompiledGraph:
         self._compiled_graph = compiled_graph
         self._matrix = policy_matrix
 
+    @property
+    def nodes(self) -> dict:
+        """Explicitly exposes the underlying workflow nodes for registry validation."""
+        return getattr(self._compiled_graph, "nodes", {})
+
     def enforce_entry(
         self, node_name: str, required_claim: str
     ) -> "SecureCompiledGraph":
