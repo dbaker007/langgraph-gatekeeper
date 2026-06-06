@@ -9,10 +9,15 @@ from langgraph_gatekeeper.core.graph import SecureCompiledGraph
 # =============================================================================
 # GLOBAL FRAMEWORK TOPOLOGY CONSTANTS
 # =============================================================================
-# Framework consumers MUST register the secure tools node on their StateGraph
-# using this exact literal string key name. Custom alternative keys will collide
-# with LangGraph's native parameter dependency injector.
 SECURE_TOOL_NODE_NAME = "tools"
+
+
+class DotDict(dict):
+    """A minimal dictionary proxy wrapper providing seamless dot-notation access."""
+
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
 
 
 class SecureWorkflowGateway:
@@ -26,17 +31,7 @@ class SecureWorkflowGateway:
         self._tool_claims_map: Dict[str, str] = {}
 
     def add_tool(self, func: Callable, required_claim: str) -> "SecureWorkflowGateway":
-        """Registers a raw python tool function with an explicit security permission token.
-
-        CRITICAL ARCHITECTURAL REQUIREMENT:
-        When using secure tools, you MUST mount the framework-managed tools node onto
-        your StateGraph using the canonical name 'tools' (or SECURE_TOOL_NODE_NAME):
-
-            workflow.add_node(SECURE_TOOL_NODE_NAME, gateway.tools)
-
-        Naming this node anything else will cause LangGraph's internal dependency injector
-        to strip method signature schemas and fail with a native ValueError at runtime.
-        """
+        """Registers a raw python tool function with an explicit security permission token."""
         self._tool_claims_map[func.__name__] = required_claim
         self._registered_tools[func] = required_claim
         return self
@@ -124,41 +119,37 @@ class SecureWorkflowGateway:
 
     def compile(self, workflow: Any, **kwargs: Any) -> SecureCompiledGraph:
         """Injects security closures across all nodes and compiles the final secure graph."""
+        from langgraph.graph import MessagesState
+
         from langgraph_gatekeeper.core.task_cache_db import (
             get_token_by_business_context,
         )
 
-        # 1. Enforce message-tracking duck typing conditionally if tools are registered
+        schema_obj = getattr(workflow, "schema", None)
         if self._registered_tools:
-            has_message_channel = "messages" in workflow.channels
-            schema_obj = getattr(workflow, "schema", None)
+            is_valid_schema = False
+            if schema_obj is MessagesState:
+                is_valid_schema = True
+            elif isinstance(schema_obj, type) and issubclass(schema_obj, MessagesState):
+                is_valid_schema = True
+            elif schema_obj is None and "messages" in getattr(workflow, "channels", {}):
+                is_valid_schema = True
 
-            has_message_field = False
-            if schema_obj:
-                if hasattr(schema_obj, "__fields__"):  # Pydantic v1
-                    has_message_field = "messages" in schema_obj.__fields__
-                elif hasattr(schema_obj, "model_fields"):  # Pydantic v2
-                    has_message_field = "messages" in schema_obj.model_fields
-                elif hasattr(
-                    schema_obj, "__annotations__"
-                ):  # TypedDict / Standard Class
-                    has_message_field = "messages" in schema_obj.__annotations__
-
-            if not (has_message_channel or has_message_field):
+            if not is_valid_schema:
                 raise TypeError(
                     "\n================================================================================\n"
-                    "CRITICAL COMPILATION REFUSAL: Missing Mandatory 'messages' State Channel\n"
+                    "CRITICAL COMPILATION REFUSAL: Invalid State Graph Schema Inheritance\n"
                     "================================================================================\n"
-                    "The provided StateGraph schema does not support message-tracking capabilities.\n\n"
+                    "The provided StateGraph schema class does not inherit from LangGraph's MessagesState.\n\n"
                     "WHY THIS CRITICAL ERROR OCCURRED:\n"
-                    "You have registered secure tools using '.add_tool()'. The framework compiles a native\n"
-                    "LangGraph ToolNode under the hood, which strictly requires an explicit state key\n"
-                    "named exactly 'messages' to extract, process, and write back LLM tool call loops.\n\n"
+                    "You have registered secure tools using '.add_tool()'. To guarantee that tool execution\n"
+                    "histories and native message append reducers are safely managed by the runtime engine,\n"
+                    "your custom state schema MUST explicitly inherit from LangGraph's MessagesState primitive.\n\n"
                     "HOW TO FIX THIS REJECTION:\n"
-                    "1. Update your StateGraph schema class or TypedDict to include a key named 'messages'.\n"
-                    "2. Alternatively, inherit directly from LangGraph's pre-built 'MessagesState' primitive:\n\n"
-                    "   from langgraph.graph import MessagesState, StateGraph\n"
-                    "   workflow = StateGraph(MessagesState)\n"
+                    "Open your application's models file and update your schema definition class signature:\n\n"
+                    "   from langgraph.graph import MessagesState\n\n"
+                    "   class YourCustomStateClass(MessagesState):\n"
+                    "       # Your custom field definitions here...\n"
                     "================================================================================"
                 )
 
@@ -169,7 +160,6 @@ class SecureWorkflowGateway:
                 return runnable_obj.invoke(*a, **kw)
             return runnable_obj(*a, **kw)
 
-        # 2. Safety scan to protect the developer from naming convention collisions
         canvas_node_keys = list(workflow.nodes.keys())
         if self._registered_tools and SECURE_TOOL_NODE_NAME not in canvas_node_keys:
             raise KeyError(
@@ -195,6 +185,12 @@ class SecureWorkflowGateway:
 
             def create_secure_closure(node_key: str, orig_runnable: Any) -> Callable:
                 def pre_execution_security_guard(*args: Any, **kwargs: Any) -> Any:
+                    # Pure signature proxy coercion: Wraps incoming state dicts in a transparent DotDict container
+                    args_list = list(args)
+                    if args_list and isinstance(args_list[0], dict):
+                        args_list[0] = DotDict(args_list[0])
+                    args = tuple(args_list)
+
                     try:
                         config_dict = get_config() or {}
                     except Exception:
@@ -217,7 +213,7 @@ class SecureWorkflowGateway:
                         exec_info = getattr(runtime, "execution_info", None)
                         ns_string = getattr(exec_info, "checkpoint_ns", "") or ""
 
-                    # FIXED: Added [0] to cleanly map the target node name string from the namespace list
+                    # FIXED: Added [0] index to cleanly slice the node key string and prevent comparison bypasses
                     if ns_string and ":" in ns_string:
                         active_executing_node = ns_string.split(":")[0]
                         if active_executing_node != node_key:

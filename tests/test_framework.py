@@ -1,14 +1,12 @@
-import os
 import sqlite3
 import uuid
 
 import pytest
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel
+from langgraph.graph import END, START, MessagesState, StateGraph
 
 from langgraph_gatekeeper import (
-    SecureWorkflowGateway,  # CHANGED: Imported the object gateway cleanly
+    SecureWorkflowGateway,
     execute_graph,
     get_historical_thread_status,
     interrupt,
@@ -18,7 +16,8 @@ from langgraph_gatekeeper import (
 MOCK_CHECKPOINT_DB = "test_checkpoints.db"
 
 
-class FrameworkTestState(BaseModel):
+# FIXED: Changed from BaseModel to inherit directly from MessagesState to clear the compile check!
+class FrameworkTestState(MessagesState):
     input_key: str = ""
     result_data: str = ""
 
