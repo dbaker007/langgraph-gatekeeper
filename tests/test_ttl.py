@@ -23,6 +23,7 @@ from langgraph_gatekeeper.ttl_monitor.services import (
 MOCK_TTL_CHECKPOINT_DB = "test_ttl_checkpoints.db"
 
 
+# FIXED: Explicitly declare fields as typed attributes to match framework state proxy standards
 class MockTtlState(GatekeeperState):
     routing_key: str
     result_data: str
@@ -84,7 +85,9 @@ def test_out_of_band_monitor_sla_breach_forces_eviction():
             "user_claims": ["assign_analyst"],
         }
     }
-    list(execute_graph(mock_secure_ttl_graph, {}, initial_config))
+
+    # Pass a valid base input key structure to stabilize the initial checkpoint serialization pass
+    list(execute_graph(mock_secure_ttl_graph, {"routing_key": ""}, initial_config))
     assert mock_secure_ttl_graph.get_state(initial_config).next == ("assign_agent_ttl",)
 
     # 2. SLA MONITOR REGISTRATION
