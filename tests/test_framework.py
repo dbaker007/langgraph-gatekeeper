@@ -8,7 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from langgraph_gatekeeper import (
-    compile_graph_with_authorization,
+    SecureWorkflowGateway,  # CHANGED: Imported the object gateway cleanly
     execute_graph,
     get_historical_thread_status,
     interrupt,
@@ -31,12 +31,23 @@ def interrupt_node(state: FrameworkTestState) -> dict:
     response = interrupt(
         state.input_key,
         "framework_base_compliance",
-        "verify_underwriter",  # CHANGED: Action-based permission mapping
+        "verify_underwriter",
         {"status": "AWAITING_TEST_SIGN_OFF"},
     )
     return {"result_data": response}
 
 
+# 1. INITIALIZE THE LIFECYCLE GATEWAY OBJECT
+gateway = SecureWorkflowGateway()
+
+# 2. CONFIG CHANNELS FLUENTLY UPFRONT
+(
+    gateway.enforce_entry("entry_node", required_claim="assign_analyst").enforce_entry(
+        "interrupt_node", required_claim="assign_analyst"
+    )
+)
+
+# 3. CONSTRUCT THE CANVAS TOPOLOGY
 workflow = StateGraph(FrameworkTestState)
 workflow.add_node("entry_node", entry_node)
 workflow.add_node("interrupt_node", interrupt_node)
@@ -48,13 +59,8 @@ workflow.add_edge("interrupt_node", END)
 conn = sqlite3.connect(MOCK_CHECKPOINT_DB, check_same_thread=False)
 checkpointer = SqliteSaver(conn)
 
-graph = (
-    compile_graph_with_authorization(workflow, checkpointer=checkpointer)
-    .enforce_entry(
-        "entry_node", required_claim="assign_analyst"
-    )  # CHANGED: Action-based naming
-    .enforce_entry("interrupt_node", required_claim="assign_analyst")
-)
+# 4. BAKE THE SECURE GRAPH COMPILATION ASSET
+graph = gateway.compile(workflow, checkpointer=checkpointer)
 
 
 def test_full_orchestration_and_negative_failure_modes():
@@ -107,7 +113,7 @@ def test_resumption_retries_after_unauthorized_interception():
         "configurable": {
             "thread_id": thread_id,
             "user_id": "baker_manager",
-            "user_claims": ["verify_underwriter"],  # Isolated manager claim
+            "user_claims": ["verify_underwriter"],
         }
     }
 

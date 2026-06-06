@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from langgraph_gatekeeper import (
-    compile_graph_with_authorization,
+    SecureWorkflowGateway,  # FIXED: Imported object model cleanly
     execute_graph,
     interrupt,
 )
@@ -29,11 +29,10 @@ def assign_agent_node(
     state: MockState, config: Optional[RunnableConfig] = None
 ) -> dict:
     unique_key = f"task_concierge_{uuid.uuid4()}"
-    # Aligned positional format using action-based permission verbs
     response = interrupt(
         unique_key,
         "hazmat_dispatch_compliance",
-        "verify_underwriter",  # CHANGED: Action permission for hurdle
+        "verify_underwriter",
         {"status": "AWAITING_TEST_SIGN_OFF"},
     )
     return {"routing_key": unique_key, "result_data": response}
@@ -42,6 +41,16 @@ def assign_agent_node(
 def kill_switch(state: MockState, config: Optional[RunnableConfig] = None) -> dict:
     return {}
 
+
+# 1. INITIALIZE THE LIFECYCLE GATEWAY OBJECT
+gateway = SecureWorkflowGateway()
+
+# 2. CONFIGURE NODE ENTRY RULES FLUENTLY
+(
+    gateway.enforce_entry(
+        "assign_agent", required_claim="assign_analyst"
+    ).enforce_entry("kill_switch", required_claim="infra_eviction_clearance")
+)
 
 workflow = StateGraph(MockState)
 workflow.add_node("assign_agent", assign_agent_node)
@@ -54,14 +63,8 @@ workflow.add_edge("kill_switch", END)
 conn = sqlite3.connect(MOCK_CHECKPOINT_DB, check_same_thread=False)
 checkpointer = SqliteSaver(conn)
 
-# Fluent compiler syntax with fine-grained permission naming
-mock_secure_graph = (
-    compile_graph_with_authorization(workflow, checkpointer=checkpointer)
-    .enforce_entry(
-        "assign_agent", required_claim="assign_analyst"
-    )  # CHANGED: Action permission
-    .enforce_entry("kill_switch", required_claim="infra_eviction_clearance")
-)
+# 3. COMPILE TO SECURE COMPILED GRAPH ASSET
+mock_secure_graph = gateway.compile(workflow, checkpointer=checkpointer)
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +80,7 @@ def test_initial_execution_clears_gate_with_correct_role():
         "configurable": {
             "thread_id": f"t_{uuid.uuid4()}",
             "user_id": "derek",
-            "user_claims": ["assign_analyst"],  # CHANGED: Matches entry gate permission
+            "user_claims": ["assign_analyst"],
         }
     }
     list(execute_graph(mock_secure_graph, {}, config))
@@ -99,7 +102,7 @@ def test_initial_execution_fails_with_unauthorized_role():
 
 def test_complete_end_to_end_privilege_isolation_lifecycle():
     """LIFECYCLE SECURITY SUITE: Enforces strict multi-actor privilege separation."""
-    from langgraph_gatekeeper import resume  # CHANGED: Swapped for renamed resume hook
+    from langgraph_gatekeeper import resume
 
     thread_id = f"t_lifecycle_{uuid.uuid4()}"
     biz_ctx = "hazmat_dispatch_compliance"
@@ -108,7 +111,7 @@ def test_complete_end_to_end_privilege_isolation_lifecycle():
         "configurable": {
             "thread_id": thread_id,
             "user_id": "operator_derek",
-            "user_claims": ["assign_analyst"],  # CHANGED: Action-based naming
+            "user_claims": ["assign_analyst"],
         }
     }
     list(execute_graph(mock_secure_graph, {}, operator_config))
@@ -130,7 +133,7 @@ def test_complete_end_to_end_privilege_isolation_lifecycle():
         "configurable": {
             "thread_id": thread_id,
             "user_id": "underwriter_baker",
-            "user_claims": ["verify_underwriter"],  # Isolated manager claim
+            "user_claims": ["verify_underwriter"],
         }
     }
 
@@ -158,9 +161,12 @@ def test_fail_closed_firewall_blocks_spoof_attempts_with_missing_user_id():
     local_workflow.add_edge(START, "restricted_target")
     local_workflow.add_edge("restricted_target", END)
 
-    malicious_secure_graph = compile_graph_with_authorization(
+    # Use clean, separate gateway wrapper block locally
+    local_gw = SecureWorkflowGateway()
+    local_gw.enforce_entry("restricted_target", required_claim="admin_clearance")
+    malicious_secure_graph = local_gw.compile(
         local_workflow, checkpointer=MemorySaver()
-    ).enforce_entry("restricted_target", required_claim="admin_clearance")
+    )
 
     malicious_config = {"configurable": {"thread_id": f"t_attack_{uuid.uuid4()}"}}
 
@@ -181,9 +187,11 @@ def test_framework_permits_internal_checkpointer_serialization_passes():
     local_workflow.add_edge(START, "functional_gate")
     local_workflow.add_edge("functional_gate", END)
 
-    functional_secure_graph = compile_graph_with_authorization(
+    local_gw = SecureWorkflowGateway()
+    local_gw.enforce_entry("functional_gate", required_claim="standard_user")
+    functional_secure_graph = local_gw.compile(
         local_workflow, checkpointer=MemorySaver()
-    ).enforce_entry("functional_gate", required_claim="standard_user")
+    )
 
     valid_user_config = {
         "configurable": {
@@ -200,24 +208,15 @@ def test_framework_permits_internal_checkpointer_serialization_passes():
 
 
 def test_proxy_lock_blocks_unauthorized_state_mutations():
-    """TDD FOCUS - TASK 5: Verifies 'update_state' is programmatically protected.
-
-    1. Positive Pass: A system actor holding 'mutate_state' can modify state.
-    2. Negative Failure: A user lacking 'mutate_state' is forcefully blocked.
-
-    This test will fail immediately because the proxy lock does not exist yet.
-    """
-    # 1. SETUP MALICIOUS CONFIG (Lacks 'mutate_state')
+    """TDD FOCUS - TASK 5: Verifies 'update_state' is programmatically protected."""
     malicious_config = {
         "configurable": {
             "thread_id": f"t_mutation_hack_{uuid.uuid4()}",
             "user_id": "malicious_actor",
-            "user_claims": ["assign_analyst"],  # Missing 'mutate_state'!
+            "user_claims": ["assign_analyst"],
         }
     }
 
-    # CRITICAL ATTACK VERIFICATION: This MUST raise a PermissionError!
-    # It will fail to raise because our proxy lock is currently open.
     with pytest.raises(PermissionError) as exc_info:
         mock_secure_graph.update_state(malicious_config, {"result_data": "HACKED"})
 

@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from langgraph_gatekeeper import (
-    compile_graph_with_authorization,
+    SecureWorkflowGateway,  # FIXED: Imported object model cleanly
     execute_graph,
     interrupt,
 )
@@ -36,24 +36,32 @@ def assign_agent_ttl_node(
     state: MockTtlState, config: Optional[RunnableConfig] = None
 ) -> dict:
     unique_key = f"task_ttl_concierge_{uuid.uuid4()}"
-    # Aligned positional arguments for modern 4-parameter signature contract
     response = interrupt(
         unique_key,
         "hazmat_dispatch_compliance",
-        "executive_underwriter",
+        "verify_underwriter",
         {"status": "AWAITING_TTL_SIGN_OFF"},
     )
     return {"routing_key": unique_key, "result_data": response}
 
 
-# COMPLIANCE MANDATE: Abstract system eviction target node
 def kill_switch(state: MockTtlState, config: Optional[RunnableConfig] = None) -> dict:
     return {}
 
 
+# 1. INITIALIZE THE LIFECYCLE GATEWAY OBJECT
+gateway = SecureWorkflowGateway()
+
+# 2. CONFIGURE NODE ENTRY RULES FLUENTLY
+(
+    gateway.enforce_entry(
+        "assign_agent_ttl", required_claim="assign_analyst"
+    ).enforce_entry("kill_switch", required_claim="infra_eviction_clearance")
+)
+
 workflow = StateGraph(MockTtlState)
 workflow.add_node("assign_agent_ttl", assign_agent_ttl_node)
-workflow.add_node("kill_switch", kill_switch)  # Registering the mandatory system node
+workflow.add_node("kill_switch", kill_switch)
 
 workflow.add_edge(START, "assign_agent_ttl")
 workflow.add_edge("assign_agent_ttl", END)
@@ -62,12 +70,8 @@ workflow.add_edge("kill_switch", END)
 conn = sqlite3.connect(MOCK_TTL_CHECKPOINT_DB, check_same_thread=False)
 checkpointer = SqliteSaver(conn)
 
-# Fully isolated local graph asset setup cut from test_security.py
-mock_secure_ttl_graph = (
-    compile_graph_with_authorization(workflow, checkpointer=checkpointer)
-    .enforce_entry("assign_agent_ttl", required_claim="basic_analyst")
-    .enforce_entry("kill_switch", required_claim="infra_eviction_clearance")
-)
+# 3. COMPILE TO SECURE COMPILED GRAPH ASSET
+mock_secure_ttl_graph = gateway.compile(workflow, checkpointer=checkpointer)
 
 
 @pytest.fixture(autouse=True)
@@ -84,7 +88,7 @@ def test_out_of_band_monitor_sla_breach_forces_eviction():
         "configurable": {
             "thread_id": thread_id,
             "user_id": "derek_analyst",
-            "user_claims": ["basic_analyst"],
+            "user_claims": ["assign_analyst"],
         }
     }
     list(execute_graph(mock_secure_ttl_graph, {}, initial_config))
