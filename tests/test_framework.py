@@ -1,11 +1,13 @@
+import os
 import sqlite3
 import uuid
 
 import pytest
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.graph import END, START, StateGraph
 
 from langgraph_gatekeeper import (
+    GatekeeperState,  # Clean framework import
     SecureWorkflowGateway,
     execute_graph,
     get_historical_thread_status,
@@ -16,10 +18,10 @@ from langgraph_gatekeeper import (
 MOCK_CHECKPOINT_DB = "test_checkpoints.db"
 
 
-# FIXED: Changed from BaseModel to inherit directly from MessagesState to clear the compile check!
-class FrameworkTestState(MessagesState):
-    input_key: str = ""
-    result_data: str = ""
+# Complies with our new framework schema tier
+class FrameworkTestState(GatekeeperState):
+    input_key: str
+    result_data: str
 
 
 def entry_node(state: FrameworkTestState) -> dict:
@@ -39,7 +41,7 @@ def interrupt_node(state: FrameworkTestState) -> dict:
 # 1. INITIALIZE THE LIFECYCLE GATEWAY OBJECT
 gateway = SecureWorkflowGateway()
 
-# 2. CONFIG CHANNELS FLUENTLY UPFRONT
+# 2. CONFIGURE NODE ENTRY RULES FLUENTLY UPFRONT
 (
     gateway.enforce_entry("entry_node", required_claim="assign_analyst").enforce_entry(
         "interrupt_node", required_claim="assign_analyst"

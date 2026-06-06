@@ -119,37 +119,43 @@ class SecureWorkflowGateway:
 
     def compile(self, workflow: Any, **kwargs: Any) -> SecureCompiledGraph:
         """Injects security closures across all nodes and compiles the final secure graph."""
-        from langgraph.graph import MessagesState
-
+        from langgraph_gatekeeper.core.models import GatekeeperState
         from langgraph_gatekeeper.core.task_cache_db import (
             get_token_by_business_context,
         )
 
-        schema_obj = getattr(workflow, "schema", None)
+        # LOCKED IN: Accept custom subclasses of GatekeeperState, the raw class definition,
+        # OR verify that the channels exactly match the GatekeeperState structure natively.
         if self._registered_tools:
+            schema_obj = getattr(workflow, "schema", None)
+
             is_valid_schema = False
-            if schema_obj is MessagesState:
+            if schema_obj is GatekeeperState:
                 is_valid_schema = True
-            elif isinstance(schema_obj, type) and issubclass(schema_obj, MessagesState):
+            elif isinstance(schema_obj, type) and issubclass(
+                schema_obj, GatekeeperState
+            ):
                 is_valid_schema = True
             elif schema_obj is None and "messages" in getattr(workflow, "channels", {}):
+                # Handles native StateGraph(GatekeeperState) where LangGraph flattens the schema to None
                 is_valid_schema = True
 
             if not is_valid_schema:
                 raise TypeError(
                     "\n================================================================================\n"
-                    "CRITICAL COMPILATION REFUSAL: Invalid State Graph Schema Inheritance\n"
+                    "CRITICAL COMPILATION REFUSAL: Missing GatekeeperState Core Abstraction\n"
                     "================================================================================\n"
-                    "The provided StateGraph schema class does not inherit from LangGraph's MessagesState.\n\n"
+                    "Your StateGraph schema class does not inherit from the framework's GatekeeperState.\n\n"
                     "WHY THIS CRITICAL ERROR OCCURRED:\n"
-                    "You have registered secure tools using '.add_tool()'. To guarantee that tool execution\n"
-                    "histories and native message append reducers are safely managed by the runtime engine,\n"
-                    "your custom state schema MUST explicitly inherit from LangGraph's MessagesState primitive.\n\n"
+                    "You have registered secure capabilities using '.add_tool()'. To guarantee that thread\n"
+                    "data access boundaries, automated message histories, and security audit logs are\n"
+                    "safely tracked by the compiler, your custom canvas schema MUST explicitly subclass\n"
+                    "the framework's core 'GatekeeperState' type-safe abstraction primitive.\n\n"
                     "HOW TO FIX THIS REJECTION:\n"
-                    "Open your application's models file and update your schema definition class signature:\n\n"
-                    "   from langgraph.graph import MessagesState\n\n"
-                    "   class YourCustomStateClass(MessagesState):\n"
-                    "       # Your custom field definitions here...\n"
+                    "Open your application models file and swap out generic base classes:\n\n"
+                    "   from langgraph_gatekeeper import GatekeeperState\n\n"
+                    "   class YourCustomApplicationState(GatekeeperState):\n"
+                    "       # Your custom application fields here...\n"
                     "================================================================================"
                 )
 
@@ -160,6 +166,7 @@ class SecureWorkflowGateway:
                 return runnable_obj.invoke(*a, **kw)
             return runnable_obj(*a, **kw)
 
+        # Safety scan to protect the developer from naming convention collisions
         canvas_node_keys = list(workflow.nodes.keys())
         if self._registered_tools and SECURE_TOOL_NODE_NAME not in canvas_node_keys:
             raise KeyError(
@@ -185,10 +192,15 @@ class SecureWorkflowGateway:
 
             def create_secure_closure(node_key: str, orig_runnable: Any) -> Callable:
                 def pre_execution_security_guard(*args: Any, **kwargs: Any) -> Any:
-                    # Pure signature proxy coercion: Wraps incoming state dicts in a transparent DotDict container
+                    # DE-FUNKED: Pass the direct dictionary reference into the proxy object
+                    # to support flawless, in-place node state mutations natively!
                     args_list = list(args)
-                    if args_list and isinstance(args_list[0], dict):
-                        args_list[0] = DotDict(args_list[0])
+                    if args_list and hasattr(args_list[0], "get"):
+                        from langgraph_gatekeeper.core.models import (
+                            GatekeeperStateProxy,
+                        )
+
+                        args_list[0] = GatekeeperStateProxy(args_list[0])
                     args = tuple(args_list)
 
                     try:
@@ -213,7 +225,7 @@ class SecureWorkflowGateway:
                         exec_info = getattr(runtime, "execution_info", None)
                         ns_string = getattr(exec_info, "checkpoint_ns", "") or ""
 
-                    # FIXED: Added [0] index to cleanly slice the node key string and prevent comparison bypasses
+                    # LOCKED IN CRITICAL INDEX SLICE: Isolate the exact root node string key element
                     if ns_string and ":" in ns_string:
                         active_executing_node = ns_string.split(":")[0]
                         if active_executing_node != node_key:

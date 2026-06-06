@@ -5,21 +5,20 @@ import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel
 
-from langgraph_gatekeeper import SecureWorkflowGateway, execute_graph, interrupt
+from langgraph_gatekeeper import GatekeeperState, SecureWorkflowGateway, execute_graph
+from langgraph_gatekeeper.core.orchestrator import interrupt
 from langgraph_gatekeeper.core.task_cache_db import TASK_CACHE_DB_PATH
 
 MOCK_GATE_DB = "test_gate_checkpoints.db"
 
 
-class NodeGateState(BaseModel):
-    routing_key: str = ""
-    result_data: str = ""
+class NodeGateState(GatekeeperState):
+    routing_key: str
+    result_data: str
 
 
 def functional_gate_node(state: NodeGateState) -> dict:
-    # FIXED: Drop a framework interrupt hurdle so the thread freezes and allows verification!
     response = interrupt(
         state.routing_key,
         "framework_base_compliance",
@@ -83,7 +82,7 @@ def test_fail_closed_firewall_blocks_spoof_attempts_with_missing_user_id():
     def secure_node(state: dict) -> dict:
         return {"result": "hack_succeeded"}
 
-    local_workflow = StateGraph(dict)
+    local_workflow = StateGraph(GatekeeperState)
     local_workflow.add_node("restricted_target", secure_node)
     local_workflow.add_edge(START, "restricted_target")
     local_workflow.add_edge("restricted_target", END)
@@ -108,7 +107,7 @@ def test_framework_permits_internal_checkpointer_serialization_passes():
     def functional_node(state: dict) -> dict:
         return {"status": "node_processed"}
 
-    local_workflow = StateGraph(dict)
+    local_workflow = StateGraph(GatekeeperState)
     local_workflow.add_node("functional_gate", functional_node)
     local_workflow.add_edge(START, "functional_gate")
     local_workflow.add_edge("functional_gate", END)

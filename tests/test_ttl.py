@@ -7,13 +7,9 @@ import pytest
 from langgraph.checkpoint.base import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
-from pydantic import BaseModel
 
-from langgraph_gatekeeper import (
-    SecureWorkflowGateway,  # FIXED: Imported object model cleanly
-    execute_graph,
-    interrupt,
-)
+from langgraph_gatekeeper import GatekeeperState, SecureWorkflowGateway, execute_graph
+from langgraph_gatekeeper.core.orchestrator import interrupt
 from langgraph_gatekeeper.ttl_monitor.monitor import (
     run_ttl_monitor_cycle,
     set_framework_daemon_identity,
@@ -27,9 +23,9 @@ from langgraph_gatekeeper.ttl_monitor.services import (
 MOCK_TTL_CHECKPOINT_DB = "test_ttl_checkpoints.db"
 
 
-class MockTtlState(BaseModel):
-    routing_key: str = ""
-    result_data: str = ""
+class MockTtlState(GatekeeperState):
+    routing_key: str
+    result_data: str
 
 
 def assign_agent_ttl_node(
@@ -49,10 +45,8 @@ def kill_switch(state: MockTtlState, config: Optional[RunnableConfig] = None) ->
     return {}
 
 
-# 1. INITIALIZE THE LIFECYCLE GATEWAY OBJECT
+# Initialize the gateway object
 gateway = SecureWorkflowGateway()
-
-# 2. CONFIGURE NODE ENTRY RULES FLUENTLY
 (
     gateway.enforce_entry(
         "assign_agent_ttl", required_claim="assign_analyst"
@@ -70,7 +64,6 @@ workflow.add_edge("kill_switch", END)
 conn = sqlite3.connect(MOCK_TTL_CHECKPOINT_DB, check_same_thread=False)
 checkpointer = SqliteSaver(conn)
 
-# 3. COMPILE TO SECURE COMPILED GRAPH ASSET
 mock_secure_ttl_graph = gateway.compile(workflow, checkpointer=checkpointer)
 
 

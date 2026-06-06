@@ -3,9 +3,9 @@ import uuid
 import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from langgraph_gatekeeper import SecureWorkflowGateway, execute_graph
+from langgraph_gatekeeper import GatekeeperState, SecureWorkflowGateway, execute_graph
 
 
 def test_gateway_tool_management_clears_authorized_claims():
@@ -21,8 +21,8 @@ def test_gateway_tool_management_clears_authorized_claims():
     local_gw = SecureWorkflowGateway()
     local_gw.add_tool(mock_shipping_tool, required_claim="cargo:read")
 
-    # 2. Build a standard graph topology using native MessagesState
-    workflow = StateGraph(MessagesState)
+    # 2. Build a standard graph topology using native GatekeeperState
+    workflow = StateGraph(GatekeeperState)
     workflow.add_node("tools", local_gw.tools)
     workflow.add_edge(START, "tools")
     workflow.add_edge("tools", END)
@@ -76,8 +76,8 @@ def test_gateway_tool_management_blocks_unauthorized_claims():
     local_gw = SecureWorkflowGateway()
     local_gw.add_tool(mock_admin_payout_tool, required_claim="financial:write")
 
-    # Build standard graph topology using native MessagesState
-    workflow = StateGraph(MessagesState)
+    # Build standard graph topology using native GatekeeperState
+    workflow = StateGraph(GatekeeperState)
     workflow.add_node("tools", local_gw.tools)
     workflow.add_edge(START, "tools")
     workflow.add_edge("tools", END)
