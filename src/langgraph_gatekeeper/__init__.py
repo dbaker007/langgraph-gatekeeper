@@ -1,4 +1,7 @@
-from langgraph_gatekeeper.core.gateway import SecureWorkflowGateway
+from langgraph_gatekeeper.core.gateway import (
+    SECURE_TOOL_NODE_NAME,
+    SecureWorkflowGateway,
+)
 from langgraph_gatekeeper.core.graph import SecureCompiledGraph
 from langgraph_gatekeeper.core.orchestrator import (
     execute_graph,
@@ -9,6 +12,7 @@ from langgraph_gatekeeper.core.orchestrator import (
 
 __all__ = [
     "SecureWorkflowGateway",
+    "SECURE_TOOL_NODE_NAME",
     "SecureCompiledGraph",
     "execute_graph",
     "interrupt",
