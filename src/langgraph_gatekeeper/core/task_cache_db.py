@@ -1,6 +1,6 @@
 import os
 import sqlite3
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 _CURRENT_MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 TASK_CACHE_DB_PATH = os.path.join(_CURRENT_MODULE_DIR, "task_cache.db")

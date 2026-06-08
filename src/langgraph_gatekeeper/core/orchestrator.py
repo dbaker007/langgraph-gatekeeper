@@ -1,11 +1,10 @@
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Generator
 
 from langgraph.types import Command
 from langgraph.types import interrupt as langgraph_native_interrupt
 
 from langgraph_gatekeeper.core.task_cache_db import (
     consume_active_task_token,
-    get_active_task_token,
     get_token_by_business_context,
     init_task_cache_db,
     save_active_task_token,

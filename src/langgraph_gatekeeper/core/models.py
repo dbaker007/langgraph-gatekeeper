@@ -1,46 +1,52 @@
-from typing import Any
+from typing import Any, List
 
 from langgraph.graph import MessagesState
+from pydantic import BaseModel, Field
 
 
-class GatekeeperState(MessagesState, total=False):
-    """The unified framework state abstraction tier tracking channel bounds."""
+class GatekeeperMessagesState(MessagesState, total=False):  # type: ignore[call-arg]
+    """A dictionary-based (TypedDict) high-assurance base schema layout.
+
+    Automatically pre-injects required security metrics and identity tracking channels.
+    """
 
     user_id: str
-    user_claims: list
+    user_claims: List[str]
+
+
+class GatekeeperObjectState(BaseModel):
+    """An object-oriented (Pydantic) high-assurance base schema model wrapper.
+
+    Provides traditional class structures and auto-complete hints natively.
+    """
+
+    user_id: str = Field(default="anonymous_user")
+    user_claims: List[str] = Field(default_factory=list)
+    messages: List[Any] = Field(default_factory=list)
 
 
 class GatekeeperStateProxy(dict):
-    """A dictionary-inheriting runtime proxy object providing seamless dot-notation
-    access over LangGraph's raw flattened dictionary state payloads.
+    """An optimized, loop-free data routing lens proxy offering safe dot-notation
+
+    property access across flattened dictionary channels.
     """
 
     def __init__(self, target_dict: dict) -> None:
         super().__init__(target_dict)
-        object.__setattr__(self, "_underlying_dict", target_dict)
 
     def __getattr__(self, name: str) -> Any:
-        """Proxies dot-notation read lookups straight to the dictionary keys
-        with graceful fallback to prevent node attribute execution crashes.
-        """
-        underlying = object.__getattribute__(self, "_underlying_dict")
-        if name in underlying:
-            return underlying[name]
-        if name in self:
-            return self[name]
-        # Symmetrical fallback match to support uninitialized channel states
+        if super().__contains__(name):
+            return super().__getitem__(name)
         return None
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Proxies dot-notation writes straight into the dictionary keys."""
-        underlying = object.__getattribute__(self, "_underlying_dict")
-        underlying[name] = value
-        self[name] = value
+        super().__setitem__(name, value)
 
     def __delattr__(self, name: str) -> None:
-        """Proxies dot-notation deletions straight from the dictionary keys."""
-        underlying = object.__getattribute__(self, "_underlying_dict")
-        if name in underlying:
-            del underlying[name]
-        if name in self:
-            del self[name]
+        if super().__contains__(name):
+            super().__delitem__(name)
+        else:
+            raise AttributeError(f"'GatekeeperStateProxy' has no attribute '{name}'")
+
+    def __bool__(self) -> bool:
+        return len(self) > 0
