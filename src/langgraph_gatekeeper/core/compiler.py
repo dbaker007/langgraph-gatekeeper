@@ -93,22 +93,21 @@ def compile_secure_graph(
                 active_action = configurable.get("active_action", "execute")
 
                 # =========================================================================
-                # 🛡️ UNIFIED SECURITY PROVIDER LOOKUP (CONSISTENT MATRIX CHECK)
+                # 🛡️ STEP 1: INITIAL NODE ENTRY SECURITY (EXECUTE CHECK ONLY)
                 # =========================================================================
-                node_rules = full_policy.get(node_key, {})
-                required_claims_list = node_rules.get(active_action, [])
+                if active_action == "execute":
+                    node_rules = full_policy.get(node_key, {})
+                    required_claims_list = node_rules.get("execute", [])
 
-                # If an explicit restriction is mapped for this active action path, enforce it
-                if required_claims_list:
-                    # 1. Block unauthenticated anonymous configurations completely
-                    if "user_id" not in configurable or not user_claims:
-                        raise PermissionError(
-                            f"SECURITY INTERCEPTION: User '{user_id}' denied access to node '{node_key}'. "
-                            f"Missing required permission claim tokens."
-                        )
+                    if required_claims_list:
+                        # 1. Block unauthenticated anonymous configurations completely
+                        if "user_id" not in configurable or not user_claims:
+                            raise PermissionError(
+                                f"SECURITY INTERCEPTION: User '{user_id}' denied access to node '{node_key}'. "
+                                f"Missing required permission claim tokens."
+                            )
 
-                    # 2. Enforce role claims clearance upfront before allowing node execution
-                    if active_action != "resume":
+                        # 2. Enforce role claims clearance upfront before allowing node execution
                         is_authorized_entry = any(
                             claim in user_claims for claim in required_claims_list
                         )
@@ -127,10 +126,13 @@ def compile_secure_graph(
                     ns_string = getattr(exec_info, "checkpoint_ns", "") or ""
 
                 if ns_string and ":" in ns_string:
-                    active_executing_node = ns_string.split(":")
+                    active_executing_node = ns_string.split(":")[0]
                     if active_executing_node != node_key:
                         return _dispatch_runnable(orig_runnable, *args, **kwargs)
 
+                # =========================================================================
+                # 🛡️ STEP 3: RESUMPTION AUTHORIZATION (DYNAMIC LEDGER VERIFICATION)
+                # =========================================================================
                 if active_action == "resume":
                     from langgraph_gatekeeper.core.task_cache_db import (
                         get_token_by_business_context,
@@ -140,10 +142,15 @@ def compile_secure_graph(
                         "active_business_context", "default_context"
                     )
                     token_data = get_token_by_business_context(thread_id, biz_ctx)
-                    required_claim = (
-                        token_data.get("required_claim") if token_data else ""
-                    )
 
+                    # FAIL-CLOSED PROTECTION: Hard-deny access on dynamic cache-miss anomalies
+                    if not token_data:
+                        raise PermissionError(
+                            f"SECURITY INTERCEPTION: Resumption denied for user '{user_id}' on node '{node_key}'. "
+                            f"No active transaction token found for business context '{biz_ctx}'."
+                        )
+
+                    required_claim = token_data.get("required_claim", "")
                     if required_claim and required_claim not in user_claims:
                         raise PermissionError(
                             f"SECURITY INTERCEPTION: User '{user_id}' denied resumption access to node '{node_key}'."
