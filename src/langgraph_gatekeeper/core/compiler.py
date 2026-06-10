@@ -42,7 +42,7 @@ def compile_secure_graph(
     """An optimized standalone compiler module that intercepts graph canvas nodes
     to inject zero-trust boundary verification guards natively.
     """
-    # Invoke the standalone contract field inspector directly on the workflow
+    # Invoke the standalone type-safe schema contract validator directly on the workflow
     validate_workflow_schema(workflow)
 
     def _dispatch_runnable(runnable_obj: Any, *a: Any, **kw: Any) -> Any:
@@ -53,12 +53,18 @@ def compile_secure_graph(
     canvas_node_keys = list(workflow.nodes.keys())
 
     for node_name in canvas_node_keys:
-        # PERFORMANCE OPTIMIZATION: Only inject security closures if the node
-        # is explicitly restricted or governed inside our active policy matrix!
+        # Extract the global policy rules dictionary mapped to this specific node
         node_policy = policy_matrix.get(node_name, {})
 
-        # If the node has no configured constraints, leave it completely raw and untouched
-        if not node_policy or not node_policy.get("execute", []):
+        # GLOBAL POLICY SCANNER: Check if *any* action (execute, resume, etc.) has constraints.
+        # This guarantees we catch and wrap every single governed boundary symmetrically.
+        has_configured_constraints = any(
+            isinstance(claims, list) and len(claims) > 0
+            for claims in node_policy.values()
+        )
+
+        # If every action path is completely open, leave the node raw to maximize performance
+        if not has_configured_constraints:
             continue
 
         node_spec = workflow.nodes[node_name]
@@ -66,7 +72,9 @@ def compile_secure_graph(
             node_spec, "runnable", getattr(node_spec, "action", node_spec)
         )
 
-        def create_secure_closure(node_key: str, orig_runnable: Any) -> Callable:
+        def create_secure_closure(
+            node_key: str, orig_runnable: Any, policy_dict: dict
+        ) -> Callable:
             def pre_execution_security_guard(*args: Any, **kwargs: Any) -> Any:
                 from langgraph_gatekeeper.core.models import GatekeeperStateProxy
 
@@ -78,11 +86,6 @@ def compile_secure_graph(
                 ):
                     args_list = GatekeeperStateProxy(args_list)
                 args = tuple(args_list)
-
-                # Fetch static claim requirements for this node upfront out of our fluent policy map dict
-                required_claims_list = policy_matrix.get(node_key, {}).get(
-                    "execute", []
-                )
 
                 try:
                     config_dict = get_config() or {}
@@ -105,8 +108,11 @@ def compile_secure_graph(
                 thread_id = configurable.get("thread_id", "anonymous_thread")
                 active_action = configurable.get("active_action", "execute")
 
+                # DYNAMIC LIFECYCLE ROUTER: Fetch the exact required claims for the current active action
+                required_claims_list = policy_dict.get(active_action, [])
+
                 # =========================================================================
-                # 🛡️ STEP 1: ZERO TRUST PRIMARY PERIMETER FIREWALLES
+                # 🛡️ STEP 1: ZERO TRUST PRIMARY PERIMETER FIREWALLS
                 # =========================================================================
                 if required_claims_list:
                     # 1. Block unauthenticated anonymous configurations completely
@@ -136,7 +142,7 @@ def compile_secure_graph(
                     ns_string = getattr(exec_info, "checkpoint_ns", "") or ""
 
                 if ns_string and ":" in ns_string:
-                    active_executing_node = ns_string.split(":")[0]
+                    active_executing_node = ns_string.split(":")
                     if active_executing_node != node_key:
                         return _dispatch_runnable(orig_runnable, *args, **kwargs)
 
@@ -168,7 +174,6 @@ def compile_secure_graph(
             pre_execution_security_guard.__name__ = orig_name
 
             try:
-                # Add type ignore tokens to allow clean dynamic signature reflection writes
                 pre_execution_security_guard.__signature__ = inspect.signature(  # type: ignore
                     original_runnable
                 )
@@ -180,7 +185,10 @@ def compile_secure_graph(
 
             return pre_execution_security_guard
 
-        secure_closure = create_secure_closure(node_name, original_runnable)
+        # Pass the full, multi-action policy dictionary directly into the closure constructor
+        secure_closure = create_secure_closure(
+            node_name, original_runnable, node_policy
+        )
 
         if hasattr(node_spec, "runnable"):
             node_spec.runnable = secure_closure
