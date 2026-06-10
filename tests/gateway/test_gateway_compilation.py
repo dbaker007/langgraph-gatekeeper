@@ -124,3 +124,47 @@ def test_gateway_fluent_enforce_entry_maps_policies_accurately():
 
     assert "tier_1_analyst" in matrix.get("restricted_node_1", {}).get("execute", [])
     assert "tier_2_supervisor" in matrix.get("restricted_node_2", {}).get("execute", [])
+
+
+def test_compiler_leaves_unrestricted_nodes_raw_and_untouched():
+    """SCENARIO: Verifies that if a node has no configured constraints inside the policy matrix,
+
+    the compiler skips the security closure wrapper, letting it execute natively.
+    """
+
+    def open_public_node(state: Any) -> dict:
+        return {"messages": ["Public Data Clearance Pass"]}
+
+    workflow = StateGraph(GatekeeperMessagesState)
+    workflow.add_node("public_open_node", open_public_node)
+    workflow.add_node("governed_secure_node", lambda state: {})
+
+    workflow.add_edge(START, "public_open_node")
+    workflow.add_edge("public_open_node", "governed_secure_node")
+    workflow.add_edge("governed_secure_node", END)
+
+    # Configure rules ONLY for the governed node, leaving the public node open
+    gateway = SecureWorkflowGateway()
+    gateway.enforce_entry("governed_secure_node", required_claim="internal_staff")
+
+    compiled_graph = gateway.compile(workflow, checkpointer=MemorySaver())
+
+    # Public API Behavior Verification: An anonymous user with NO credentials
+    # must be able to execute the public node natively without triggering firewalls.
+    anonymous_config = {
+        "configurable": {
+            "thread_id": "t_open_test_999",
+            # 'user_id' and 'user_claims' are completely absent!
+        }
+    }
+
+    # Execute the graph turn. It should process the public node cleanly,
+    # and only fail when the execution stream hits the governed node threshold.
+    with pytest.raises(PermissionError) as exc_info:
+        for event in compiled_graph.stream({"messages": []}, config=anonymous_config):
+            if not event:
+                break
+
+    # Proves the public node executed natively, and the firewall only fired at the secure boundary
+    assert "SECURITY INTERCEPTION" in str(exc_info.value)
+    assert "governed_secure_node" in str(exc_info.value)
