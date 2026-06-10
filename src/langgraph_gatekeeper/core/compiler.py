@@ -19,18 +19,20 @@ def validate_workflow_schema(workflow: Any) -> None:
     schema_obj = getattr(workflow, "state_schema", None)
 
     if schema_obj is not None and isinstance(schema_obj, type):
-        # Inspect dictionary or class-style state schemas via standard class annotation keys
+        # 1. Inspect dictionary or class-style state schemas via standard class annotation keys
         annotations = getattr(schema_obj, "__annotations__", {})
         if "user_id" in annotations and "user_claims" in annotations:
             is_valid_schema = True
-        # Inspect traditional Pydantic object state subclass ancestry
+        # 2. Inspect traditional Pydantic object state subclass ancestry
         elif issubclass(schema_obj, GatekeeperObjectState):
             is_valid_schema = True
 
     if not is_valid_schema:
+        # FIXED: Truthful, non-lying compiler exception message
         raise TypeError(
-            "CRITICAL COMPILATION REJECTION: Your StateGraph schema class must "
-            "subclass either GatekeeperMessagesState or GatekeeperObjectState."
+            "CRITICAL COMPILATION REJECTION: Your StateGraph schema configuration must "
+            "explicitly declare the 'user_id' and 'user_claims' identity tracking channels, "
+            "or subclass GatekeeperObjectState."
         )
 
 
@@ -40,7 +42,7 @@ def compile_secure_graph(
     """An optimized standalone compiler module that intercepts graph canvas nodes
     to inject zero-trust boundary verification guards natively.
     """
-    # Invoke the standalone contract field installer directly with the workflow instance parameter
+    # Invoke the standalone contract field inspector directly on the workflow
     validate_workflow_schema(workflow)
 
     def _dispatch_runnable(runnable_obj: Any, *a: Any, **kw: Any) -> Any:
@@ -51,6 +53,14 @@ def compile_secure_graph(
     canvas_node_keys = list(workflow.nodes.keys())
 
     for node_name in canvas_node_keys:
+        # PERFORMANCE OPTIMIZATION: Only inject security closures if the node
+        # is explicitly restricted or governed inside our active policy matrix!
+        node_policy = policy_matrix.get(node_name, {})
+
+        # If the node has no configured constraints, leave it completely raw and untouched
+        if not node_policy or not node_policy.get("execute", []):
+            continue
+
         node_spec = workflow.nodes[node_name]
         original_runnable = getattr(
             node_spec, "runnable", getattr(node_spec, "action", node_spec)
@@ -70,8 +80,9 @@ def compile_secure_graph(
                 args = tuple(args_list)
 
                 # Fetch static claim requirements for this node upfront out of our fluent policy map dict
-                node_policy = policy_matrix.get(node_key, {})
-                required_claims_list = node_policy.get("execute", [])
+                required_claims_list = policy_matrix.get(node_key, {}).get(
+                    "execute", []
+                )
 
                 try:
                     config_dict = get_config() or {}
@@ -95,7 +106,7 @@ def compile_secure_graph(
                 active_action = configurable.get("active_action", "execute")
 
                 # =========================================================================
-                # 🛡️ STEP 1: ZERO TRUST PRIMARY PERIMETER FIREWALLS
+                # 🛡️ STEP 1: ZERO TRUST PRIMARY PERIMETER FIREWALLES
                 # =========================================================================
                 if required_claims_list:
                     # 1. Block unauthenticated anonymous configurations completely
