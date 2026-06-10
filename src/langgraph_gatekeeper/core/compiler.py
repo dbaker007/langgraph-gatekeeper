@@ -5,6 +5,7 @@ from langgraph.config import get_config
 
 from langgraph_gatekeeper.core.graph import SecureCompiledGraph
 from langgraph_gatekeeper.core.models import GatekeeperObjectState
+from langgraph_gatekeeper.core.task_cache_db import get_token_by_business_context
 
 
 def validate_workflow_schema(workflow: Any) -> None:
@@ -21,10 +22,10 @@ def validate_workflow_schema(workflow: Any) -> None:
     if schema_obj is not None and isinstance(schema_obj, type):
         # 1. Inspect dictionary or class-style state schemas via standard class annotation keys
         annotations = getattr(schema_obj, "__annotations__", {})
-        if "user_id" in annotations and "user_claims" in annotations:
-            is_valid_schema = True
         # 2. Inspect traditional Pydantic object state subclass ancestry
-        elif issubclass(schema_obj, GatekeeperObjectState):
+        if issubclass(schema_obj, GatekeeperObjectState):
+            is_valid_schema = True
+        elif "user_id" in annotations and "user_claims" in annotations:
             is_valid_schema = True
 
     if not is_valid_schema:
@@ -147,10 +148,6 @@ def compile_secure_graph(
                         return _dispatch_runnable(orig_runnable, *args, **kwargs)
 
                 if active_action == "resume":
-                    from langgraph_gatekeeper.core.task_cache_db import (
-                        get_token_by_business_context,
-                    )
-
                     biz_ctx = configurable.get(
                         "active_business_context", "default_context"
                     )
